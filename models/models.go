@@ -44,7 +44,7 @@ func (candle *Candle) IsMarubozu() bool {
 	return candle.Body() > candle.Shadow()
 }
 
-func (c *Candle) UnmarshalJSON(data []byte) error {
+func (candle *Candle) UnmarshalJSON(data []byte) error {
 	var raw []interface{}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return fmt.Errorf("failed to unmarshal raw candle data: %w", err)
@@ -65,12 +65,12 @@ func (c *Candle) UnmarshalJSON(data []byte) error {
 		return int64(f)
 	}
 
-	c.Open = getString(raw[1])
-	c.High = getString(raw[2])
-	c.Low = getString(raw[3])
-	c.Close = getString(raw[4])
-	c.Volume = getString(raw[5])
-	c.Time = getInt64(raw[6])
+	candle.Open = getString(raw[1])
+	candle.High = getString(raw[2])
+	candle.Low = getString(raw[3])
+	candle.Close = getString(raw[4])
+	candle.Volume = getString(raw[5])
+	candle.Time = getInt64(raw[6])
 
 	return nil
 }
