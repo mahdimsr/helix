@@ -9,23 +9,24 @@ import (
 
 func main() {
 	log.Print("Hello, I`m helix")
-	//const dateTimeLayout = "2026"
+	const dateTimeLayout = "2006-01-02 15:04"
 
 	candles, err := exchange.GetCandles("BTCUSDT", "5m", 10)
 	if err != nil {
 		panic(err)
 	}
 
-	for _, candle := range candles {
+	lastCandle := candles[5]
 
-		candleTime := time.UnixMilli(candle.Time).UTC()
+	candleTime := time.UnixMilli(lastCandle.Time).UTC()
 
-		fmt.Printf("Time %s | Open: %s | High: %s | Close: %s | Low: %s \n",
-			candleTime.Format("2006-01-02 15:04"),
-			candle.Open,
-			candle.High,
-			candle.Close,
-			candle.Low,
-		)
-	}
+	fmt.Printf("Time %s | Open: %s | High: %s | Close: %s | Low: %s | body: %f | shadow: %f \n",
+		candleTime.Format(dateTimeLayout),
+		lastCandle.Open,
+		lastCandle.High,
+		lastCandle.Close,
+		lastCandle.Low,
+		lastCandle.Body(),
+		lastCandle.Shadow(),
+	)
 }

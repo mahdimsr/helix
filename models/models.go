@@ -3,6 +3,8 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 )
 
 type Candle struct {
@@ -13,6 +15,33 @@ type Candle struct {
 	Volume string
 	Time   int64
 	Symbol string
+}
+
+func (candle *Candle) Body() float64 {
+	openPrice, _ := strconv.ParseFloat(candle.Open, 64)
+	closePrice, _ := strconv.ParseFloat(candle.Close, 64)
+
+	return math.Abs((closePrice-openPrice)/openPrice) * 100
+}
+
+func (candle *Candle) Shadow() float64 {
+	highPrice, _ := strconv.ParseFloat(candle.High, 64)
+	lowPrice, _ := strconv.ParseFloat(candle.Low, 64)
+	openPrice, _ := strconv.ParseFloat(candle.Open, 64)
+	closePrice, _ := strconv.ParseFloat(candle.Close, 64)
+
+	shadowChangedPrice := math.Abs(highPrice-lowPrice) - math.Abs(closePrice-openPrice)
+
+	return (shadowChangedPrice / openPrice) * 100
+}
+
+func (candle *Candle) IsMarubozu() bool {
+
+	if candle.Shadow() == 0 {
+		return true
+	}
+
+	return candle.Body() > candle.Shadow()
 }
 
 func (c *Candle) UnmarshalJSON(data []byte) error {
