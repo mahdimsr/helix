@@ -17,6 +17,25 @@ type Candle struct {
 	Symbol string
 }
 
+type Trade struct {
+	Type          string // "Long" or "Short"
+	OpenPrice     float64
+	ClosePrice    float64
+	Duration      int64
+	OpenTime      int64
+	CloseTime     int64
+	RunupPrice    float64
+	RunupPercent  float64
+	RunupTime     int64
+	RunupDuration int64
+	RiskPrice     float64
+	RiskPercent   float64
+	RiskTime      int64
+	RiskDuration  int64
+	ATR           int
+	Sensitivity   float64
+}
+
 func (candle *Candle) Body() float64 {
 	openPrice, _ := strconv.ParseFloat(candle.Open, 64)
 	closePrice, _ := strconv.ParseFloat(candle.Close, 64)
