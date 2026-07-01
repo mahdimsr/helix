@@ -2,44 +2,30 @@ package main
 
 import (
 	"fmt"
-	"helix/exchange"
-	"helix/indicators"
+	"helix/metatrader"
 	"log"
-	"math"
-	"time"
+	"net"
 )
 
 func main() {
-	log.Print("Hello, I`m helix")
-	const dateTimeLayout = "2006-01-02 15:04"
 
-	candles, err := exchange.GetCandles("BTCUSDT", "15m", 100)
+	const ADDRESS = "127.0.0.1:8585"
+
+	fmt.Printf("Starting Listener...")
+
+	listener, err := net.Listen("tcp", ADDRESS)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	trades := indicators.BacktestUTBot(candles, 4, 20)
+	fmt.Printf("Listening to %s", ADDRESS)
 
-	for _, trade := range trades {
-		openTime := time.UnixMilli(trade.OpenTime).UTC()
-		closeTime := time.UnixMilli(trade.CloseTime).UTC()
-		pnl := math.Abs(trade.OpenPrice-trade.ClosePrice) / 100
-		if trade.Type == "Long" {
-			fmt.Printf("🟢 Buy | Time: %s | openprice: %s | closeTime: %s | closePrice: %s | pnl: %s \n",
-				openTime.Format(dateTimeLayout),
-				trade.OpenPrice,
-				closeTime.Format(dateTimeLayout),
-				trade.ClosePrice,
-				pnl,
-			)
-		} else {
-			fmt.Printf("🔴 Sell | Time: %s | openprice: %s | closeTime: %s | closePrice: %s | pnl: %s \n",
-				openTime.Format(dateTimeLayout),
-				trade.OpenPrice,
-				closeTime.Format(dateTimeLayout),
-				trade.ClosePrice,
-				pnl,
-			)
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Fatal(err)
 		}
+
+		go metatrader.Handle(conn)
 	}
 }
