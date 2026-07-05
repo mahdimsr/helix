@@ -110,9 +110,8 @@ void HandleCommands(int socket)
       string json = GetCandlesJSON(symbol, tf, count);
       if(json != "")
       {
-         if(SendLargeString(json + "\n"))
+         if(SendCandles(json))
              Print("Sent ", StringLen(json), " bytes JSON");
-            // Print("Sent ", json, " in response of ", incoming);
          else
             Print("Failed to send candles");
       }
@@ -227,6 +226,16 @@ void SendResult(int socket, bool ok, uint retcode, ulong ticket, string comment)
 
    if(!SendStr(json))
       Reconnect();
+}
+
+bool SendCandles(string candlesJsonString)
+{
+    string envelope = StringFormat(
+        "{\"type\":\"CANDLES\",\"data\":%s}", 
+        candlesJsonString
+    );
+   
+   return SendLargeString(envelope + "\n");
 }
 
 bool SendLargeString(string s)

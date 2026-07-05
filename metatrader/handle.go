@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"helix/models"
 	"log"
 	"net"
 	"time"
@@ -18,45 +17,41 @@ func Handle(conn net.Conn) {
 			log.Fatal(err)
 		}
 	}(conn)
-	reader := bufio.NewReaderSize(conn, 1<<20)
+	client := NewMT5Client(conn)
 
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	symbol := "XAUUSD.ecn"
-	timeframe := "PERIOD_M1"
+	timeframe := "PERIOD_H1"
 	candlesCount := 200
 
-	requestCandles(conn, symbol, timeframe, candlesCount)
+	requestCandles(*client, symbol, timeframe, candlesCount)
 
 	for {
 		select {
 		case <-ticker.C:
 			// هر 1 دقیقه درخواست کندل
-			requestCandles(conn, symbol, timeframe, candlesCount)
+			requestCandles(*client, symbol, timeframe, candlesCount)
 
 		default:
 			// خواندن پاسخ از EA
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				log.Println("Read error:", err)
-				return
-			}
+			line, _ := client.ReadResponse()
 
-			log.Printf("RAW received (%d bytes): %q", len(line), line)
-
-			var candles []models.Candle
-			if err := json.Unmarshal([]byte(line), &candles); err != nil {
+			var result SocketResult
+			if err := json.Unmarshal([]byte(line), &result); err != nil {
 				log.Println("JSON parse error:", err)
 				continue
 			}
 
-			log.Printf("Received %d candles for XAUUSD.ecn", len(candles))
-			if len(candles) > 0 {
-				last := candles[len(candles)-1]
-				log.Printf("Last candle: time=%d open=%.2f high=%.2f low=%.2f close=%.2f",
-					last.Time, last.Open, last.High, last.Low, last.Close)
+			log.Printf("Result type is %s", result.Type)
+
+			if result.Type == "CANDLES" {
+				candles := result.fetchDataAsCandle()
+
+				fmt.Printf("Fetch %d candles", len(candles))
 			}
+
 		}
 	}
 }
@@ -83,7 +78,7 @@ func placeOrder(conn net.Conn, side string) error {
 	return nil
 }
 
-func requestCandles(conn net.Conn, symbol string, timeframe string, candlesCount int) {
+func requestCandles(client MTClient, symbol string, timeframe string, candlesCount int) {
 
 	fmt.Printf("Fetch Candles symbol: %s | timeframe: %s | candlesCount: %d", symbol, timeframe, candlesCount)
 
@@ -91,7 +86,7 @@ func requestCandles(conn net.Conn, symbol string, timeframe string, candlesCount
 
 	fmt.Printf("sending CMD is: %s", cmd)
 
-	_, err := conn.Write([]byte(cmd))
+	err := client.SendCommand(cmd)
 	if err != nil {
 		log.Println("Write error:", err)
 	} else {
