@@ -1,9 +1,9 @@
 package metatrader
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
+	"helix/strategy"
 	"log"
 	"net"
 	"time"
@@ -50,32 +50,26 @@ func Handle(conn net.Conn) {
 				candles := result.fetchDataAsCandle()
 
 				fmt.Printf("Fetch %d candles", len(candles))
+
+				lastCandle := candles[len(candles)-1]
+
+				signal := strategy.CalculateSignal(candles)
+				amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, signal)
+				placeOrder(*client, symbol, signal, amount, tp, sl)
 			}
 
 		}
 	}
 }
 
-func placeOrder(conn net.Conn, side string) error {
+func placeOrder(client MTClient, symbol string, signal string, lot float64, tp float64, sl float64) {
 
-	if _, err := conn.Write([]byte(side + "\n")); err != nil {
-		return fmt.Errorf("write failed: %w", err)
-	}
-
-	// خواندن پاسخ JSON
-	reader := bufio.NewReader(conn)
-	line, err := reader.ReadString('\n')
+	// PLACE_ORDER|symbol|side|lot|tp|sl
+	cmd := fmt.Sprintf("PLACE_ORDER|%s|%s|%.3f|%.3f|%.3f", symbol, signal, lot, tp, sl)
+	err := client.SendCommand(cmd)
 	if err != nil {
-		return fmt.Errorf("read failed: %w", err)
+		log.Println("place order failed: ", err)
 	}
-
-	fmt.Printf("response form metatrader: %s", line)
-
-	/*var r OrderResult
-	if err := json.Unmarshal([]byte(line), &r); err != nil {
-		return fmt.Errorf("bad json %q: %w", line, err)
-	}*/
-	return nil
 }
 
 func requestCandles(client MTClient, symbol string, timeframe string, candlesCount int) {
