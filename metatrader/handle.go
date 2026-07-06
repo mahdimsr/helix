@@ -22,7 +22,7 @@ func Handle(conn net.Conn) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	symbol := "XAUUSD.ecn"
+	symbol := "BTCUSD"
 	timeframe := "PERIOD_H1"
 	candlesCount := 200
 
@@ -51,7 +51,7 @@ func Handle(conn net.Conn) {
 
 				fmt.Printf("Fetch %d candles", len(candles))
 
-				lastCandle := candles[len(candles)-1]
+				lastCandle := candles[0]
 
 				signal := strategy.CalculateSignal(candles)
 				amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, signal)
@@ -74,7 +74,7 @@ func placeOrder(client MTClient, symbol string, signal string, lot float64, tp f
 
 func requestCandles(client MTClient, symbol string, timeframe string, candlesCount int) {
 
-	fmt.Printf("Fetch Candles symbol: %s | timeframe: %s | candlesCount: %d", symbol, timeframe, candlesCount)
+	fmt.Printf("Fetch Candles symbol: %s | timeframe: %s | candlesCount: %d \n", symbol, timeframe, candlesCount)
 
 	cmd := fmt.Sprintf("GET_CANDLES|%s|%s|%d\n", symbol, timeframe, candlesCount)
 

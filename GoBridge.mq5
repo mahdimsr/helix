@@ -90,24 +90,27 @@ void HandleCommands(int socket)
 
    Print("Received from Go: ", incoming);
 
-   // پارس دستور: GET_CANDLES|symbol|timeframe|count
+   
    string parts[];
    int n = StringSplit(incoming, '|', parts);
-
-   if(n >= 4 && parts[0] == "GET_CANDLES")
-   {
+   string command = parts[0];
+   
+   if(command == "GET_CANDLES" && n>=4)
+   {   
+      // GET_CANDLES|symbol|timeframe|count
+      
       string symbol = parts[1];
-      string tfStr = parts[2];
+      string timeframeString = parts[2];
       int count = (int)StringToInteger(parts[3]);
 
-      ENUM_TIMEFRAMES tf = StringToTimeframe(tfStr);
-      if(tf == PERIOD_CURRENT)
+      ENUM_TIMEFRAMES timeframe = StringToTimeframe(timeframeString);
+      if(timeframe == PERIOD_CURRENT)
       {
-         Print("Invalid timeframe: ", tfStr);
+         Print("Invalid timeframe: ", timeframeString);
          return;
       }
 
-      string json = GetCandlesJSON(symbol, tf, count);
+      string json = GetCandlesJSON(symbol, timeframe, count);
       if(json != "")
       {
          if(SendCandles(json))
@@ -117,16 +120,21 @@ void HandleCommands(int socket)
       }
       return;
    }
+   else if(command == "PLACE_ORDER")
+   {
+      // PLACE_ORDER|symbol|side|lot|tp|sl
+      
+      printf("Resolve placing order values \n");
+    
+      string symbol = parts[1];
+      string side = parts[2];
+      double lot = StringToDouble(parts[3]);
+      double tp = StringToDouble(parts[4]);
+      double sl = StringToDouble(parts[5]);
+      
+      SendOrderResult(symbol,side,lot,tp,sl);
+   }
 
-   // دستور BUY یا SELL
-   if(StringFind(incoming, "BUY") >= 0)
-   {
-      HandlePlaceOrder(socket, "BUY", 0.03, 0.03);
-   }
-   else if(StringFind(incoming, "SELL") >= 0)
-   {
-      HandlePlaceOrder(socket, "SELL", 0.03, 0.03);
-   }
 }
 
 ENUM_TIMEFRAMES StringToTimeframe(string tfStr)
@@ -173,49 +181,45 @@ string GetCandlesJSON(string symbol, ENUM_TIMEFRAMES tf, int count)
    return json;
 }
 
-void HandlePlaceOrder(int socket, string cmd, float tpPercent, float slPercent)
+void SendOrderResult(string symbol, string side, double lot, double tp, double sl)
 {
-   MqlTradeRequest req;
-   MqlTradeResult  res;
-   ZeroMemory(req);
-   ZeroMemory(res);
+    MqlTradeRequest req;
+    MqlTradeResult  res;
+    ZeroMemory(req);
+    ZeroMemory(res);
+    
+    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+    double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+    
+    
+    req.action       = TRADE_ACTION_DEAL;
+    req.symbol       = symbol;
+    req.volume       = lot;
+    req.type         = (side == "BUY") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+    req.price        = (side == "BUY") ? ask : bid;
+    req.deviation    = 10;
+    // req.magic        = 123456;
+    req.type_filling = ORDER_FILLING_FOK;
+    
+    if(tp > 0) req.tp = tp;
+    if(sl > 0) req.sl = sl;
 
-   double price = (cmd == "BUY")
-                  ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
-                  : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    bool ok = OrderSend(req, res);
+    
+    Print("order send result is: " + ok + "\n");
+    
+    string envelope = StringFormat(
+      "{\"type\":\"ORDER\",\"data\":{\"success\":%s,\"ticket\":%I64d,\"retcode\":%d,\"price\":%.5f,\"tp\":%.5f,\"sl\":%.5f,\"comment\":\"%s\"}} \n",
+      ok ? "true" : "false",
+      res.deal > 0 ? res.deal : res.order,
+      res.retcode,
+      res.price,
+      req.tp,
+      req.sl,
+      res.comment
+    );
 
-   req.action       = TRADE_ACTION_DEAL;
-   req.symbol       = _Symbol;
-   req.volume       = Lot;
-   req.type         = (cmd == "BUY") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-   req.price        = price;
-   req.deviation    = 500;
-   req.magic        = 12345;
-   req.type_filling = ORDER_FILLING_IOC;
-   req.type_time    = ORDER_TIME_GTC;
-
-   // محاسبه TP/SL بر اساس درصد
-   if(cmd == "BUY")
-   {
-      req.tp = price + (price * tpPercent);
-      req.sl = price - (price * slPercent);
-   }
-   else
-   {
-      req.tp = price - (price * tpPercent);
-      req.sl = price + (price * slPercent);
-   }
-
-   long minStop = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
-   double minDist = minStop * _Point;
-   PrintFormat("min stop dist = %.2f", minDist);
-
-   bool ok = OrderSend(req, res);
-
-   PrintFormat("OrderSend ok=%d retcode=%d ticket=%I64u comment=%s tp:%.5f sl:%.5f",
-               ok, res.retcode, res.deal, res.comment, req.tp, req.sl);
-
-   SendResult(socket, ok, res.retcode, res.deal, res.comment);
+    SendLargeString(envelope);
 }
 
 void SendResult(int socket, bool ok, uint retcode, ulong ticket, string comment)
