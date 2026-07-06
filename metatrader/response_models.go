@@ -14,10 +14,13 @@ type MTClient struct {
 }
 
 type OrderResult struct {
-	OK      bool   `json:"ok"`
-	Retcode int    `json:"retcode"`
-	Ticket  uint64 `json:"ticket"`
-	Comment string `json:"comment"`
+	SUCCESS bool    `json:"success"`
+	Retcode int     `json:"retcode"`
+	Price   float64 `json:"price"`
+	Tp      float64 `json:"tp"`
+	Sl      float64 `json:"sl"`
+	Ticket  int32   `json:"ticket"`
+	Comment string  `json:"comment"`
 }
 
 type SocketResult struct {
@@ -56,4 +59,14 @@ func (socketResult SocketResult) fetchDataAsCandle() []models.Candle {
 	}
 
 	return candles
+}
+
+func (socketResult SocketResult) fetchDataAsOrder() OrderResult {
+
+	var orderResult OrderResult
+	if err := json.Unmarshal(socketResult.Data, &orderResult); err != nil {
+		log.Println("JSON parse error:", err)
+	}
+
+	return orderResult
 }

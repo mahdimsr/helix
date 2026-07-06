@@ -58,6 +58,11 @@ func Handle(conn net.Conn) {
 				placeOrder(*client, symbol, signal, amount, tp, sl)
 			}
 
+			if result.Type == "ORDER" {
+				orderResult := result.fetchDataAsOrder()
+
+				fmt.Printf("OrderResult parameters are retCode: %d | ticket: %d \n", orderResult.Retcode, orderResult.Ticket)
+			}
 		}
 	}
 }
