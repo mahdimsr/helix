@@ -134,6 +134,36 @@ void HandleCommands(int socket)
       
       SendOrderResult(symbol,side,lot,tp,sl);
    }
+   else if(command == "UPDATE_ORDER")
+   {
+      printf("handling updating order: validating parts");
+      
+      if(ArraySize(parts) < 3)
+      {
+         SendStr("UPDATE_ORDER required ticketsId and newSl value and new TpValue\n");
+         return;
+      }
+      
+      printf("handling updating order: validation parts pass");
+      
+      ulong ticket = StringToInteger(parts[1]);
+      double new_sl = StringToDouble(parts[2]);
+      double new_tp = StringToDouble(parts[3]);
+      
+   
+      if(!PositionSelectByTicket(ticket))
+      {
+         SendStr("Position not found for ticketId: " + IntegerToString(ticket) + "\n");
+         return;
+      }
+      
+      printf("handling updating order: validation ticketId pass");
+      
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      
+      UpdateOrderTpSl(symbol, ticket, new_tp, new_sl);
+      
+   }
 
 }
 
@@ -206,10 +236,54 @@ void SendOrderResult(string symbol, string side, double lot, double tp, double s
 
     bool ok = OrderSend(req, res);
     
+    ulong position_ticket = 0;
+    
+    if(ok && res.deal > 0)
+    {
+        if(HistorySelect(TimeCurrent() - 60, TimeCurrent() + 60))
+        {
+            position_ticket = HistoryDealGetInteger(res.deal, DEAL_POSITION_ID);
+        }
+    }
+    
+    if(position_ticket == 0)
+    {
+      position_ticket = res.order;
+    }
+    
     Print("order send result is: " + ok + "\n");
     
     string envelope = StringFormat(
       "{\"type\":\"ORDER\",\"data\":{\"success\":%s,\"ticket\":%I64d,\"retcode\":%d,\"price\":%.5f,\"tp\":%.5f,\"sl\":%.5f,\"comment\":\"%s\"}} \n",
+      ok ? "true" : "false",
+      position_ticket,
+      res.retcode,
+      res.price,
+      req.tp,
+      req.sl,
+      res.comment
+    );
+
+    SendLargeString(envelope);
+}
+
+void UpdateOrderTpSl(string symbol, ulong ticket, double tp, double sl)
+{
+    MqlTradeRequest req = {};
+    MqlTradeResult res = {};
+    
+    req.action = TRADE_ACTION_SLTP;
+    req.position = ticket;
+    req.symbol = symbol;
+    req.sl = sl;
+    req.tp = tp;
+    
+    bool ok = OrderSend(req, res);
+    
+    Print("update order result is: " + ok + "\n");
+    
+    string envelope = StringFormat(
+      "{\"type\":\"UPDATE_ORDER\",\"data\":{\"success\":%s,\"ticket\":%I64d,\"retcode\":%d,\"price\":%.5f,\"tp\":%.5f,\"sl\":%.5f,\"comment\":\"%s\"}} \n",
       ok ? "true" : "false",
       res.deal > 0 ? res.deal : res.order,
       res.retcode,

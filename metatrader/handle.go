@@ -3,7 +3,6 @@ package metatrader
 import (
 	"encoding/json"
 	"fmt"
-	"helix/strategy"
 	"log"
 	"net"
 	"time"
@@ -51,17 +50,21 @@ func Handle(conn net.Conn) {
 
 				fmt.Printf("Fetch %d candles", len(candles))
 
-				lastCandle := candles[0]
+				//lastCandle := candles[0]
 
-				signal := strategy.CalculateSignal(candles)
-				amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, signal)
-				placeOrder(*client, symbol, signal, amount, tp, sl)
+				//signal := strategy.CalculateSignal(candles)
+				//amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, signal)
+				//placeOrder(*client, symbol, signal, amount, tp, sl)
 			}
 
 			if result.Type == "ORDER" {
 				orderResult := result.fetchDataAsOrder()
 
 				fmt.Printf("OrderResult parameters are retCode: %d | ticket: %d \n", orderResult.Retcode, orderResult.Ticket)
+			}
+
+			if result.Type == "UPDATE_ORDER" {
+				println("update sl received")
 			}
 		}
 	}
@@ -91,4 +94,17 @@ func requestCandles(client MTClient, symbol string, timeframe string, candlesCou
 	} else {
 		log.Printf("Requested %d candles for %s %s", candlesCount, symbol, timeframe)
 	}
+}
+
+func updateOrder(client MTClient, ticket int64, stopLoss float64, takeProfit float64) error {
+
+	// UPDATE_ORDER|ticket|sl|tp
+	cmd := fmt.Sprintf("UPDATE_ORDER|%d|%0.5f|%0.5f\n", ticket, stopLoss, takeProfit)
+
+	err := client.SendCommand(cmd)
+	if err != nil {
+		log.Println("place order failed: ", err)
+	}
+
+	return nil
 }
