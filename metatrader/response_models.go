@@ -6,6 +6,7 @@ import (
 	"helix/models"
 	"log"
 	"net"
+	"time"
 )
 
 type MTClient struct {
@@ -41,14 +42,20 @@ func (c *MTClient) SendCommand(cmd string) error {
 }
 
 func (c *MTClient) ReadResponse() (string, error) {
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
+	// timeout 30 ثانیه برای read
+	if err := c.conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		return "", err
 	}
 
-	log.Printf("RAW received (%d bytes): %q", len(line), line)
-
-	return line[:len(line)-1], nil // trim \n
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		// اگر timeout بود، خطای خاصی برنمی‌گردونه فقط err داره
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return "", nil // timeout معمولی، نه خطای واقعی
+		}
+		return "", err
+	}
+	return line, nil
 }
 
 func (socketResult SocketResult) fetchDataAsCandle() []models.Candle {

@@ -1,9 +1,8 @@
 #property strict
 
-input string  Host       = "127.0.0.1";
-input int     Port       = 8585;
-input string  Symbol_    = SYMBOL_CURRENCY_BASE;
-input double  Lot        = 0.1;
+string  Host       = "127.0.0.1";
+int     Port       = 8585;
+string  Symbol_    = SYMBOL_CURRENCY_BASE;
 input ENUM_TIMEFRAMES TF = PERIOD_M1;
 
 int      sock = INVALID_HANDLE;

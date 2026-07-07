@@ -3,7 +3,6 @@ package indicators
 import (
 	"helix/models"
 	"math"
-	"strconv"
 )
 
 func BacktestUTBot(candles []models.Candle, sensitivity float64, atrPeriod int) []models.Trade {
@@ -25,9 +24,9 @@ func BacktestUTBot(candles []models.Candle, sensitivity float64, atrPeriod int) 
 
 	for i := 0; i < n; i++ {
 		// --- 1. استخراج قیمت‌های کندل فعلی ---
-		high, _ := strconv.ParseFloat(candles[i].High, 64)
-		low, _ := strconv.ParseFloat(candles[i].Low, 64)
-		closePrice, _ := strconv.ParseFloat(candles[i].Close, 64)
+		high := candles[i].High
+		low := candles[i].Low
+		closePrice := candles[i].Close
 		time := candles[i].Time
 
 		// --- 2. آپدیت مقادیر Runup و Risk برای ترید باز فعلی ---
@@ -75,7 +74,7 @@ func BacktestUTBot(candles []models.Candle, sensitivity float64, atrPeriod int) 
 			continue
 		}
 
-		prevClose, _ := strconv.ParseFloat(candles[i-1].Close, 64)
+		prevClose := candles[i-1].Close
 		trs[i] = math.Max(high-low, math.Max(math.Abs(high-prevClose), math.Abs(low-prevClose)))
 
 		if i < atrPeriod {
@@ -161,11 +160,95 @@ func BacktestUTBot(candles []models.Candle, sensitivity float64, atrPeriod int) 
 	// بستن آخرین ترید باز در انتهای داده‌ها (اختیاری)
 	if currentTrade != nil {
 		lastCandle := candles[n-1]
-		currentTrade.ClosePrice, _ = strconv.ParseFloat(lastCandle.Close, 64)
+		currentTrade.ClosePrice = lastCandle.Close
 		currentTrade.CloseTime = lastCandle.Time
 		currentTrade.Duration = lastCandle.Time - currentTrade.OpenTime
 		trades = append(trades, *currentTrade)
 	}
 
 	return trades
+}
+
+func GetLatestUTBotSignal(candles []models.Candle, sensitivity float64, atrPeriod int) Signal {
+	n := len(candles)
+	if n == 0 {
+		return NoneSignal
+	}
+
+	var prevStop float64
+	var prevATR float64
+	sum := 0.0
+	alpha := 1.0 / float64(atrPeriod)
+
+	lastSignal := NoneSignal
+
+	// حلقه روی تمام کندل‌های پاس داده شده برای شکل‌گیری مقادیر RMA و Stop
+	for i := 0; i < n; i++ {
+		high := candles[i].High
+		low := candles[i].Low
+		closePrice := candles[i].Close
+
+		var tr float64
+		var currentATR float64
+
+		// --- 1. محاسبات ATR ---
+		if i == 0 {
+			tr = high - low
+			sum += tr
+			currentATR = sum
+			prevStop = closePrice
+			prevATR = currentATR
+			continue
+		}
+
+		prevClose := candles[i-1].Close
+		tr = math.Max(high-low, math.Max(math.Abs(high-prevClose), math.Abs(low-prevClose)))
+
+		if i < atrPeriod {
+			sum += tr
+			currentATR = sum / float64(i+1)
+		} else {
+			// محاسبه RMA
+			currentATR = alpha*tr + (1.0-alpha)*prevATR
+		}
+
+		// --- 2. محاسبه Stop ---
+		nLoss := sensitivity * currentATR
+		var stop float64
+
+		if prevClose > prevStop && closePrice > prevStop {
+			stop = math.Max(prevStop, closePrice-nLoss)
+		} else if prevClose < prevStop && closePrice < prevStop {
+			stop = math.Min(prevStop, closePrice+nLoss)
+		} else if closePrice > prevStop {
+			stop = closePrice - nLoss
+		} else {
+			stop = closePrice + nLoss
+		}
+
+		// --- 3. بررسی شرایط سیگنال ---
+		above := prevClose <= prevStop && closePrice > stop
+		below := prevStop <= prevClose && stop > closePrice
+
+		buySignal := closePrice > stop && above
+		sellSignal := closePrice < stop && below
+
+		// اگر در آخرین کندلِ آرایه هستیم، وضعیت سیگنال را ذخیره کن
+		// نکته: اگر می‌خواهید کندل ماقبل آخر را چک کنید، شرط را به i == n-2 تغییر دهید
+		if i == n-1 {
+			if buySignal {
+				lastSignal = BuySignal
+			} else if sellSignal {
+				lastSignal = SellSignal
+			} else {
+				lastSignal = NoneSignal
+			}
+		}
+
+		// آپدیت متغیرها برای کندل بعدی
+		prevStop = stop
+		prevATR = currentATR
+	}
+
+	return lastSignal
 }

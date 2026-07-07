@@ -1,19 +1,23 @@
 package strategy
 
-import "helix/models"
+import (
+	"helix/indicators"
+	"helix/models"
+)
 
-func CalculateSignal(candles []models.Candle) string {
+func CalculateSignal(candles []models.Candle, ATR int, Sensitivity int) indicators.Signal {
 
-	// only return BUY or SELL
-	return "BUY"
+	signal := indicators.GetLatestUTBotSignal(candles, float64(Sensitivity), ATR)
+
+	return signal
 }
 
 func CalculateOrderUtils(currentPrice float64, side string) (float64, float64, float64) {
 
 	// amount, tp, sl
 	amount := 0.1
-	tp := calculateTP(currentPrice, side, 0.5)
-	sl := calculateSL(currentPrice, side, 0.5)
+	tp := calculateTP(currentPrice, side, 0.2)
+	sl := calculateSL(currentPrice, side, 0.2)
 
 	return float64(amount), tp, sl
 }

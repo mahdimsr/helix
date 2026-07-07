@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"helix/database"
+	"helix/indicators"
 	"helix/models"
 	"helix/strategy"
+	"io"
 	"log"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -28,20 +31,46 @@ func Handle(conn net.Conn) {
 	db := database.MongoConnect()
 
 	symbol := "BTCUSD"
-	timeframe := "PERIOD_H1"
+	timeframe := "PERIOD_M1"
+	Sensitivity := 1
+	ATR := 1
 	candlesCount := 200
 
 	requestCandles(*client, symbol, timeframe, candlesCount)
+
+	lines := make(chan string)
+	readErr := make(chan error)
+	go func() {
+		for {
+			line, err := client.ReadResponse()
+			if err != nil {
+				readErr <- err
+				return
+			}
+			lines <- line
+		}
+	}()
 
 	for {
 		select {
 		case <-ticker.C:
 			// هر 1 دقیقه درخواست کندل
+			fmt.Println("Requesting Candle")
 			requestCandles(*client, symbol, timeframe, candlesCount)
+		case err := <-readErr:
+			if err == io.EOF {
+				log.Println("connection closed by EA (EOF)")
+				return
+			}
+			log.Println("read error:", err)
+			return
 
-		default:
-			// خواندن پاسخ از EA
-			line, _ := client.ReadResponse()
+		case line := <-lines:
+
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
 
 			var result SocketResult
 			if err := json.Unmarshal([]byte(line), &result); err != nil {
@@ -54,13 +83,21 @@ func Handle(conn net.Conn) {
 			if result.Type == "CANDLES" {
 				candles := result.fetchDataAsCandle()
 
-				fmt.Printf("Fetch %d candles", len(candles))
+				fmt.Printf("Fetch %d candles \n", len(candles))
 
 				lastCandle := candles[0]
 
-				signal := strategy.CalculateSignal(candles)
-				amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, signal)
-				placeOrder(*client, symbol, signal, amount, tp, sl)
+				signal := strategy.CalculateSignal(candles, ATR, Sensitivity)
+
+				if signal != indicators.NoneSignal {
+
+					fmt.Printf("signal detected: %s", string(signal))
+
+					amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, string(signal))
+					placeOrder(*client, symbol, string(signal), amount, tp, sl)
+				} else {
+					fmt.Println("signal not detected")
+				}
 			}
 
 			if result.Type == "ORDER" {
@@ -74,10 +111,10 @@ func Handle(conn net.Conn) {
 
 				orderRepo := database.NewOrderRepository(&db)
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
+				cancel()
 				insertResult, err := orderRepo.Create(ctx, order)
 				if err != nil {
-					log.Fatal("Create Order error: ", err)
+					fmt.Println("Create Order error: ", err)
 				}
 
 				fmt.Println("Order Inserted Id By: \n", insertResult.InsertedID)
