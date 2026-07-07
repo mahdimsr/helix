@@ -2,6 +2,8 @@ package models
 
 import (
 	"math"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type Candle struct {
@@ -31,6 +33,15 @@ type Trade struct {
 	RiskDuration  int64
 	ATR           int
 	Sensitivity   float64
+}
+
+type Order struct {
+	Id     primitive.ObjectID `bson:"id,omitempty"`
+	Symbol string             `bson:"symbol"`
+	Price  float64            `bson:"price"`
+	Tp     float64            `bson:"tp"`
+	Sl     float64            `bson:"sl"`
+	Ticket int64              `bson:"ticket"`
 }
 
 func (candle *Candle) Body() float64 {

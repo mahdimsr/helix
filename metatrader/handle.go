@@ -1,8 +1,12 @@
 package metatrader
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"helix/database"
+	"helix/models"
+	"helix/strategy"
 	"log"
 	"net"
 	"time"
@@ -20,6 +24,8 @@ func Handle(conn net.Conn) {
 
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
+
+	db := database.MongoConnect()
 
 	symbol := "BTCUSD"
 	timeframe := "PERIOD_H1"
@@ -50,16 +56,31 @@ func Handle(conn net.Conn) {
 
 				fmt.Printf("Fetch %d candles", len(candles))
 
-				//lastCandle := candles[0]
+				lastCandle := candles[0]
 
-				//signal := strategy.CalculateSignal(candles)
-				//amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, signal)
-				//placeOrder(*client, symbol, signal, amount, tp, sl)
+				signal := strategy.CalculateSignal(candles)
+				amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, signal)
+				placeOrder(*client, symbol, signal, amount, tp, sl)
 			}
 
 			if result.Type == "ORDER" {
 				orderResult := result.fetchDataAsOrder()
+				order := &models.Order{
+					Symbol: symbol,
+					Tp:     orderResult.Tp,
+					Sl:     orderResult.Sl,
+					Ticket: orderResult.Ticket,
+				}
 
+				orderRepo := database.NewOrderRepository(&db)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				insertResult, err := orderRepo.Create(ctx, order)
+				if err != nil {
+					log.Fatal("Create Order error: ", err)
+				}
+
+				fmt.Println("Order Inserted Id By: \n", insertResult.InsertedID)
 				fmt.Printf("OrderResult parameters are retCode: %d | ticket: %d \n", orderResult.Retcode, orderResult.Ticket)
 			}
 

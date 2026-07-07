@@ -19,7 +19,7 @@ type OrderResult struct {
 	Price   float64 `json:"price"`
 	Tp      float64 `json:"tp"`
 	Sl      float64 `json:"sl"`
-	Ticket  int32   `json:"ticket"`
+	Ticket  int64   `json:"ticket"`
 	Comment string  `json:"comment"`
 }
 
