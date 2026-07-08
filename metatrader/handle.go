@@ -111,10 +111,11 @@ func Handle(conn net.Conn) {
 
 				orderRepo := database.NewOrderRepository(&db)
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				cancel()
 				insertResult, err := orderRepo.Create(ctx, order)
+				cancel()
 				if err != nil {
 					fmt.Println("Create Order error: ", err)
+					continue
 				}
 
 				fmt.Println("Order Inserted Id By: \n", insertResult.InsertedID)
