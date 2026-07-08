@@ -2,18 +2,21 @@ package models
 
 import (
 	"math"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type Candle struct {
-	Open   float64 `json:"open"`
-	High   float64 `json:"high"`
-	Close  float64 `json:"close"`
-	Low    float64 `json:"low"`
-	Volume int64   `json:"volume"`
-	Time   int64   `json:"time"`
-	Symbol string  `json:"symbol"`
+	Open         float64   `json:"open" bson:"open"`
+	High         float64   `json:"high" bson:"high"`
+	Close        float64   `json:"close" bson:"close"`
+	Low          float64   `json:"low" bson:"low"`
+	Volume       int64     `json:"volume" bson:"volume"`
+	Time         int64     `json:"time" bson:"time"`
+	ReadableTime time.Time `json:"readableTime" bson:"readableTime"`
+	Symbol       string    `json:"symbol" bson:"symbol"`
+	Timeframe    string    `json:"timeframe" bson:"timeframe"`
 }
 
 type Trade struct {
