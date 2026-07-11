@@ -36,6 +36,7 @@ type Trade struct {
 	RiskDuration  int64
 	ATR           int
 	Sensitivity   float64
+	GainPercent   float64
 }
 
 type Order struct {
@@ -72,4 +73,12 @@ func (candle *Candle) IsMarubozu() bool {
 	}
 
 	return candle.Body() > candle.Shadow()
+}
+
+func CalcGainPercent(t *Trade) {
+	if t.Type == "Long" {
+		t.GainPercent = (t.ClosePrice - t.OpenPrice) / t.OpenPrice * 100
+	} else {
+		t.GainPercent = (t.OpenPrice - t.ClosePrice) / t.OpenPrice * 100
+	}
 }

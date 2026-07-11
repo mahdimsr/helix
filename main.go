@@ -1,31 +1,38 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"helix/metatrader"
+	"helix/database"
+	"helix/indicators"
 	"log"
-	"net"
+	"sort"
 )
 
 func main() {
 
-	const ADDRESS = "127.0.0.1:8585"
+	db := database.MongoConnect()
+	candlesRepo := database.NewCandleRepository(&db)
 
-	fmt.Printf("Starting Listener...")
-
-	listener, err := net.Listen("tcp", ADDRESS)
+	candles, err := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-06-01", "2026-06-30")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error getching candle: %d", err)
 	}
 
-	fmt.Printf("Listening to %s", ADDRESS)
+	optimizedResult := indicators.OptimizeDualUTBot(candles)
+	sort.Slice(optimizedResult, func(i, j int) bool {
+		return optimizedResult[i].TotalGainPerc > optimizedResult[j].TotalGainPerc
+	})
 
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		go metatrader.Handle(conn)
+	for _, result := range optimizedResult {
+		fmt.Printf("optimized result| CondATR:%d CondSens:%d SignAtr:%d SignSens:%d Trades:%d Wintrate:%.2f Gain:%.2f \n",
+			int64(result.CondATR),
+			int64(result.CondSens),
+			int64(result.SigATR),
+			int64(result.SigSens),
+			result.TotalTrades,
+			result.WinRate,
+			result.TotalGainPerc,
+		)
 	}
 }
