@@ -23,3 +23,10 @@ type UTBotParam struct {
 	ATR  int
 	Sens float64
 }
+
+type ExitMode int
+
+const (
+	ExitTP ExitMode = iota // خروج با حد سود ثابت
+	ExitSignalReverse
+)

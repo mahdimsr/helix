@@ -19,7 +19,7 @@ func main() {
 		log.Fatalf("Error getching candle: %d", err)
 	}
 
-	optimizedResult := indicators.OptimizeDualUTBot(candles)
+	optimizedResult := indicators.OptimizeDualUTBot(candles, indicators.ExitSignalReverse)
 	sort.Slice(optimizedResult, func(i, j int) bool {
 		return optimizedResult[i].TotalGainPerc > optimizedResult[j].TotalGainPerc
 	})

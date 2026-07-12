@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-func OptimizeDualUTBot(candles []models.Candle) []OptimizationResult {
+func OptimizeDualUTBot(candles []models.Candle, exitMode ExitMode) []OptimizationResult {
 
 	n := len(candles)
 	if n == 0 {
@@ -28,8 +28,8 @@ func OptimizeDualUTBot(candles []models.Candle) []OptimizationResult {
 	}
 
 	var results []OptimizationResult
-	// tpPercent := 0.003 // 0.3%
-	tpPercent := 0.03
+	tpPercent := 3.0 // درصد (برای حالت ExitTP)
+	leverage := 20.0
 
 	// 4. تست تمامی ترکیبات Condition و Signal
 	for cIdx, condParam := range params {
@@ -41,51 +41,92 @@ func OptimizeDualUTBot(candles []models.Candle) []OptimizationResult {
 			trades := 0
 			wins := 0
 			gain := 0.0
-			leverage := 20.0
 
 			inTrade := false
 			tradeType := int8(0) // 1: Long, -1: Short
-			var entryPrice float64
+			var entryPrice, tpPrice, liqPrice float64
 
 			for i := 1; i < n; i++ {
 				// الف: بررسی خروج اگر داخل معامله هستیم
 				if inTrade {
-					if tradeType == 1 { // بررسی خروج Long
-						if candles[i].High >= entryPrice*(1.0+tpPercent) {
-							// برخورد با حد سود (TP)
-							inTrade = false
+					// --- 1. چک لیکوئید شدن (اولویت اول) ---
+					liquidated := (tradeType == 1 && candles[i].Low <= liqPrice) ||
+						(tradeType == -1 && candles[i].High >= liqPrice)
+					if liquidated {
+						trades++
+						gain += -100.0
+						inTrade = false
+						continue
+					}
+
+					// --- 2. شرط خروج بر اساس exitMode ---
+					if exitMode == ExitTP {
+						// حالت TP ثابت
+						if tradeType == 1 && candles[i].High >= tpPrice {
 							trades++
 							wins++
-							gain += tpPercent * leverage * 100
-							continue
-						} else if condStates[i] == -1 {
-							// خروج استثنایی: روند کلی تغییر کرده است (به جای استاپ لاس)
+							gain += tpPercent * leverage
 							inTrade = false
+							continue
+						}
+						if tradeType == -1 && candles[i].Low <= tpPrice {
+							trades++
+							wins++
+							gain += tpPercent * leverage
+							inTrade = false
+							continue
+						}
+
+					} else if exitMode == ExitSignalReverse {
+						// حالت خروج با سیگنال معکوس اندیکاتور سیگنال
+						if tradeType == 1 && sigStates[i] == -1 && sigStates[i-1] != -1 {
+							// سیگنال sell شد → خروج
 							trades++
 							pnl := ((candles[i].Close - entryPrice) / entryPrice) * 100 * leverage
+							if pnl < -100.0 {
+								pnl = -100.0
+							}
 							gain += pnl
 							if pnl > 0 {
 								wins++
 							}
-						}
-					} else if tradeType == -1 { // بررسی خروج Short
-						if candles[i].Low <= entryPrice*(1.0-tpPercent) {
-							// برخورد با حد سود (TP)
 							inTrade = false
-							trades++
-							wins++
-							gain += tpPercent * 100 * leverage
 							continue
-						} else if condStates[i] == 1 {
-							// خروج استثنایی: روند کلی تغییر کرده است
-							inTrade = false
+						}
+						if tradeType == -1 && sigStates[i] == 1 && sigStates[i-1] != 1 {
+							// سیگنال buy شد → خروج
 							trades++
 							pnl := ((entryPrice - candles[i].Close) / entryPrice) * 100 * leverage
+							if pnl < -100.0 {
+								pnl = -100.0
+							}
 							gain += pnl
 							if pnl > 0 {
 								wins++
 							}
+							inTrade = false
+							continue
 						}
+					}
+
+					// --- 3. خروج اضطراری با تغییر روند اندیکاتور شرط ---
+					if (tradeType == 1 && condStates[i] == -1) ||
+						(tradeType == -1 && condStates[i] == 1) {
+						trades++
+						var pnl float64
+						if tradeType == 1 {
+							pnl = ((candles[i].Close - entryPrice) / entryPrice) * 100 * leverage
+						} else {
+							pnl = ((entryPrice - candles[i].Close) / entryPrice) * 100 * leverage
+						}
+						if pnl < -100.0 {
+							pnl = -100.0
+						}
+						gain += pnl
+						if pnl > 0 {
+							wins++
+						}
+						inTrade = false
 					}
 				}
 
@@ -96,12 +137,16 @@ func OptimizeDualUTBot(candles []models.Candle) []OptimizationResult {
 						inTrade = true
 						tradeType = 1
 						entryPrice = candles[i].Close
+						tpPrice = entryPrice * (1 + tpPercent/100)
+						liqPrice = entryPrice * (1.0 - 1.0/leverage)
 					} else
 					// شرط ورود Short: اندیکاتور شرط Short باشد + سیگنال تازه Short شده باشد
 					if condStates[i] == -1 && sigStates[i] == -1 && sigStates[i-1] != -1 {
 						inTrade = true
 						tradeType = -1
 						entryPrice = candles[i].Close
+						tpPrice = entryPrice * (1 - tpPercent/100)
+						liqPrice = entryPrice * (1.0 + 1.0/leverage)
 					}
 				}
 			}
@@ -114,6 +159,9 @@ func OptimizeDualUTBot(candles []models.Candle) []OptimizationResult {
 					pnl = ((candles[n-1].Close - entryPrice) / entryPrice) * 100 * leverage
 				} else {
 					pnl = ((entryPrice - candles[n-1].Close) / entryPrice) * 100 * leverage
+				}
+				if pnl < -100.0 {
+					pnl = -100.0
 				}
 				gain += pnl
 				if pnl > 0 {
