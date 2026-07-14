@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"helix/database"
-	"helix/indicators"
+	"helix/strategy"
 	"log"
-	"sort"
 )
 
 func main() {
@@ -19,20 +17,7 @@ func main() {
 		log.Fatalf("Error getching candle: %d", err)
 	}
 
-	optimizedResult := indicators.OptimizeDualUTBot(candles, indicators.ExitSignalReverse)
-	sort.Slice(optimizedResult, func(i, j int) bool {
-		return optimizedResult[i].TotalGainPerc > optimizedResult[j].TotalGainPerc
-	})
+	backtest := strategy.PulseStrategy(candles)
 
-	for _, result := range optimizedResult {
-		fmt.Printf("optimized result| CondATR:%d CondSens:%d SignAtr:%d SignSens:%d Trades:%d Wintrate:%.2f Gain:%.2f \n",
-			int64(result.CondATR),
-			int64(result.CondSens),
-			int64(result.SigATR),
-			int64(result.SigSens),
-			result.TotalTrades,
-			result.WinRate,
-			result.TotalGainPerc,
-		)
-	}
+	backtest.PrintBacktest()
 }
