@@ -137,11 +137,11 @@ func SimulatePulseTrade(candles []models.Candle, entryIdx int, position models.P
 		t.RiskDuration = riskTime - open.Time
 
 		if position == models.BuyPosition {
-			t.GainPercent = (exitPrice - price) / price * 100
+			t.GainPercent = models.CalcGainPercent(price, exitPrice, 1, 0.1, true)
 			t.RunupPercent = (runupPrice - price) / price * 100
 			t.RiskPercent = (riskPrice - price) / price * 100 // معمولاً منفی
 		} else {
-			t.GainPercent = (price - exitPrice) / price * 100
+			t.GainPercent = models.CalcGainPercent(price, exitPrice, 1, 0.1, false)
 			t.RunupPercent = (price - runupPrice) / price * 100
 			t.RiskPercent = (price - riskPrice) / price * 100 // معمولاً منفی
 		}
