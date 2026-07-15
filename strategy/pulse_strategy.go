@@ -1,6 +1,9 @@
 package strategy
 
-import "helix/models"
+import (
+	"helix/models"
+	"log"
+)
 
 func PulseStrategy(candles []models.Candle) models.BackTest {
 
@@ -13,31 +16,7 @@ func PulseStrategy(candles []models.Candle) models.BackTest {
 			continue
 		}
 
-		prev := candles[i-1]
-		entry := c.Close
-		tp := (prev.High + prev.Low) / 2
-		var sl float64
-		var position models.Position
-
-		switch {
-		case c.IsGreen():
-			position = models.SellPosition
-			if tp >= entry {
-				continue
-			}
-			dist := entry - tp
-			sl = entry + 4*dist
-
-		default:
-			position = models.BuyPosition
-			if tp <= entry {
-				continue
-			}
-			dist := tp - entry
-			sl = entry - 4*dist
-		}
-
-		trade, closed := SimulatePulseTrade(candles, i, position, entry, tp, sl)
+		trade, closed := SimulatePulseTrade(candles, i, 100, 5, 1, 0.1)
 		if closed {
 			backtest.Trades = append(backtest.Trades, trade)
 		}
@@ -48,7 +27,45 @@ func PulseStrategy(candles []models.Candle) models.BackTest {
 	return backtest
 }
 
-func SimulatePulseTrade(candles []models.Candle, entryIdx int, position models.Position, price, tp, sl float64) (models.Trade, bool) {
+func SimulatePulseTrade(candles []models.Candle, signalIdx int, lookBack, retraceNext, leverage int, fee float64) (models.Trade, bool) {
+
+	//preCandle := candles[signalIdx-1]
+	signal := candles[signalIdx]
+
+	tpPct := dynamicTPPercent(candles, signalIdx, lookBack, retraceNext)
+	if tpPct == 0 {
+		// we will not trade
+		return models.Trade{}, false
+	}
+
+	distPrice := signal.Body() * (tpPct / 100)
+	entry := signal.Close
+
+	var tp, sl float64
+	var position models.Position
+
+	if signal.IsGreen() {
+		tp = entry - distPrice
+		sl = entry + 4*distPrice
+
+		position = models.SellPosition
+	} else {
+		tp = entry + distPrice
+		sl = entry - 4*distPrice
+
+		position = models.BuyPosition
+	}
+
+	if signal.ReadableTime.UTC().Format("2006-01-02 15:04") == "2026-06-29 10:00" {
+		newCal := dynamicTPPercent(candles, signalIdx, lookBack, retraceNext)
+
+		log.Fatal("bodyPrice: ", signal.Body(), " distPrice: ", distPrice, " tpPct: ", tpPct, " newCal: ", newCal)
+	}
+
+	return simulateTrade(candles, signalIdx, position, entry, tp, sl, fee, leverage)
+}
+
+func simulateTrade(candles []models.Candle, entryIdx int, position models.Position, price, tp, sl, fee float64, leverage int) (models.Trade, bool) {
 
 	open := candles[entryIdx]
 
@@ -136,12 +153,14 @@ func SimulatePulseTrade(candles []models.Candle, entryIdx int, position models.P
 		t.RiskTime = riskTime
 		t.RiskDuration = riskTime - open.Time
 
+		percentageFee := models.FixedFeeToPercent(5, 100, leverage)
+
 		if position == models.BuyPosition {
-			t.GainPercent = models.CalcGainPercent(price, exitPrice, 1, 0.1, true)
+			t.GainPercent = models.CalcGainPercent(price, exitPrice, leverage, percentageFee, true)
 			t.RunupPercent = (runupPrice - price) / price * 100
 			t.RiskPercent = (riskPrice - price) / price * 100 // معمولاً منفی
 		} else {
-			t.GainPercent = models.CalcGainPercent(price, exitPrice, 1, 0.1, false)
+			t.GainPercent = models.CalcGainPercent(price, exitPrice, leverage, percentageFee, false)
 			t.RunupPercent = (price - runupPrice) / price * 100
 			t.RiskPercent = (price - riskPrice) / price * 100 // معمولاً منفی
 		}
@@ -150,4 +169,57 @@ func SimulatePulseTrade(candles []models.Candle, entryIdx int, position models.P
 	}
 
 	return models.Trade{}, false
+}
+
+func maxBodyRetracement(candles []models.Candle, idx, n int) float64 {
+	c := candles[idx]
+	body := c.Body()
+	if body == 0 {
+		return 0
+	}
+
+	maxRetr := 0.0
+
+	for i := idx + 1; i <= idx+n && i < len(candles); i++ {
+
+		var retr float64
+		if c.IsGreen() {
+			// how much price get lower of close price
+			retr = (c.Close - candles[i].Low) / body * 100
+		} else {
+			// how much price get upper of close price
+			retr = (candles[i].High - c.Close) / body * 100
+		}
+		if retr > maxRetr {
+			maxRetr = retr
+		}
+	}
+
+	if maxRetr < 0 {
+		return 0
+	}
+
+	//maxRetr = (maxRetr / 100)
+	return maxRetr
+}
+
+func dynamicTPPercent(candles []models.Candle, signalIdx, lookback, n int) float64 {
+	start := signalIdx - lookback
+	if start < 0 {
+		start = 0
+	}
+
+	rct := 0.0
+
+	for i := start; i < signalIdx; i++ {
+		if !candles[i].IsMarubozu() {
+			continue
+		}
+		newRct := maxBodyRetracement(candles, i, n)
+		if newRct > rct {
+			rct = newRct
+		}
+	}
+
+	return rct
 }

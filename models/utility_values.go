@@ -22,3 +22,7 @@ func CalcGainPercent(entry, exit float64, leverage int, fee float64, isLong bool
 
 	return raw*lev - totalFee
 }
+
+func FixedFeeToPercent(feeUSD float64, capital float64, leverage int) float64 {
+	return (2 * feeUSD) / (capital * float64(leverage)) * 100
+}

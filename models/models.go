@@ -64,6 +64,13 @@ func (candle *Candle) Body() float64 {
 	return math.Abs(closePrice - openPrice)
 }
 
+func (candle *Candle) BodyPercentage() float64 {
+	openPrice := candle.Open
+	closePrice := candle.Close
+
+	return math.Abs((closePrice-openPrice)/openPrice) * 100
+}
+
 func (candle *Candle) Shadow() float64 {
 	highPrice := candle.High
 	lowPrice := candle.Low
@@ -79,6 +86,10 @@ func (candle *Candle) IsMarubozu() bool {
 
 	if candle.Shadow() == 0 {
 		return true
+	}
+
+	if candle.BodyPercentage() < 0.3 {
+		return false
 	}
 
 	return candle.Body() > candle.Shadow()
@@ -109,6 +120,12 @@ func (backtest *BackTest) Calculate() {
 	}
 }
 
+func (trade *Trade) ReadableTime(timeUnixMilli int64) string {
+	openTime := time.UnixMilli(timeUnixMilli).UTC()
+
+	return openTime.Format("2006-01-02 15:04")
+}
+
 func (backtest BackTest) PrintBacktest() {
 	fmt.Println("========== Backtest Result ==========")
 	fmt.Printf("Total Trades : %d\n", len(backtest.Trades))
@@ -116,14 +133,14 @@ func (backtest BackTest) PrintBacktest() {
 	fmt.Printf("Losses       : %d\n", backtest.Loss)
 	fmt.Printf("Win Rate     : %.2f%%\n", backtest.Winrate)
 	fmt.Printf("Total Gain   : %.2f%%\n", backtest.GainPercent)
-	/*fmt.Println("-------------------------------------")
+	fmt.Println("-------------------------------------")
 	for idx, t := range backtest.Trades {
 		status := "LOSS"
-		if t.Win {
+		if t.GainPercent > 0 {
 			status = "WIN"
 		}
-		fmt.Printf("#%d %-5s | entry=%.2f tp=%.2f sl=%.2f exit=%.2f | %s (%.2f%%)\n",
-			idx+1, t.Direction, t.EntryPrice, t.TP, t.SL, t.ExitPrice, status, t.PnLPct)
+		fmt.Printf("#%d %-5s | entry=%.2f exit=%.2f percentage=%.3f status=%s openTime=%s closeTime=%s \n",
+			idx+1, t.Type, t.OpenPrice, t.ClosePrice, t.GainPercent, status, t.ReadableTime(t.OpenTime), t.ReadableTime(t.CloseTime))
 	}
-	fmt.Println("=====================================")*/
+	fmt.Println("=====================================")
 }
