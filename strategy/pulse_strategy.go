@@ -19,7 +19,11 @@ func PulseStrategy(candles []models.Candle) models.BackTest {
 			continue
 		}
 
-		trade, closed := SimulatePulseTrade(candles, i, 100, 5, 1, 0.1)
+		if c.BodyPercentage() < 0.3 {
+			continue
+		}
+
+		trade, closed := SimulatePulseTrade(candles, i, 100, 10, 1, 100, 8)
 		if closed {
 			backtest.Trades = append(backtest.Trades, trade)
 		}
@@ -30,13 +34,14 @@ func PulseStrategy(candles []models.Candle) models.BackTest {
 	return backtest
 }
 
-func SimulatePulseTrade(candles []models.Candle, signalIdx int, lookBack, retraceNext, leverage int, fee float64) (models.Trade, bool) {
+func SimulatePulseTrade(candles []models.Candle, signalIdx int, lookBack, retraceNext, leverage int, margin, fee float64) (models.Trade, bool) {
 
 	//preCandle := candles[signalIdx-1]
 	signal := candles[signalIdx]
 
 	tpPct := dynamicTPPercent(candles, signalIdx, lookBack, retraceNext)
-	if tpPct == 0 {
+	//tpPct := 30.0
+	if tpPct < 0 {
 		// we will not trade
 		return models.Trade{}, false
 	}
@@ -49,20 +54,20 @@ func SimulatePulseTrade(candles []models.Candle, signalIdx int, lookBack, retrac
 
 	if signal.IsGreen() {
 		tp = entry - distPrice
-		sl = entry + 3*distPrice
+		sl = entry + 5*distPrice
 
 		position = models.SellPosition
 	} else {
 		tp = entry + distPrice
-		sl = entry - 3*distPrice
+		sl = entry - 5*distPrice
 
 		position = models.BuyPosition
 	}
 
-	return simulateTrade(candles, signalIdx, position, entry, tp, sl, fee, leverage)
+	return simulateTrade(candles, signalIdx, position, entry, tp, sl, margin, fee, leverage)
 }
 
-func simulateTrade(candles []models.Candle, entryIdx int, position models.Position, price, tp, sl, fee float64, leverage int) (models.Trade, bool) {
+func simulateTrade(candles []models.Candle, entryIdx int, position models.Position, price, tp, sl, margin, fee float64, leverage int) (models.Trade, bool) {
 
 	open := candles[entryIdx]
 
@@ -150,14 +155,14 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 		t.RiskTime = riskTime
 		t.RiskDuration = riskTime - open.Time
 
-		percentageFee := models.FixedFeeToPercent(5, 100, leverage)
+		//percentageFee := models.FixedFeeToPercent(5, 100, leverage)
 
 		if position == models.BuyPosition {
-			t.GainPercent = models.CalcGainPercent(price, exitPrice, leverage, percentageFee, true)
+			t.GainPercent = models.CalcGainPercent(margin, price, exitPrice, leverage, fee, true)
 			t.RunupPercent = (runupPrice - price) / price * 100
 			t.RiskPercent = (riskPrice - price) / price * 100 // معمولاً منفی
 		} else {
-			t.GainPercent = models.CalcGainPercent(price, exitPrice, leverage, percentageFee, false)
+			t.GainPercent = models.CalcGainPercent(margin, price, exitPrice, leverage, fee, false)
 			t.RunupPercent = (price - runupPrice) / price * 100
 			t.RiskPercent = (price - riskPrice) / price * 100 // معمولاً منفی
 		}

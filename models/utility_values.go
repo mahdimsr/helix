@@ -8,21 +8,36 @@ const (
 	NonePosition Position = "NONE"
 )
 
-func CalcGainPercent(entry, exit float64, leverage int, fee float64, isLong bool) float64 {
-	var raw float64
+func CalcGainPercent(volumeToUSD, entry, exit float64, leverage int, fee float64, isLong bool) float64 {
+	lots := CalculateLots(volumeToUSD, leverage, entry)
+	commission := CalculateCommission(lots, fee)
+
+	var priceDiff float64
 	if isLong {
-		raw = (exit - entry) / entry * 100
+		priceDiff = exit - entry
 	} else {
-		raw = (entry - exit) / entry * 100
+		priceDiff = entry - exit
 	}
 
-	lev := float64(leverage)
+	grossProfit := priceDiff * lots
 
-	totalFee := 2 * (fee / 100) * lev
+	netProfit := grossProfit - commission
 
-	return raw*lev - totalFee
+	gainPercent := (netProfit / volumeToUSD) * 100.0
+
+	return gainPercent
 }
 
-func FixedFeeToPercent(feeUSD float64, capital float64, leverage int) float64 {
-	return (2 * feeUSD) / (capital * float64(leverage)) * 100
+func CalculateLots(margin float64, leverage int, assetPrice float64) float64 {
+	if assetPrice == 0 {
+		return 0
+	}
+	totalPositionValue := margin * float64(leverage)
+	lots := totalPositionValue / assetPrice
+	return lots
+}
+
+func CalculateCommission(lots float64, oneWayCommission float64) float64 {
+	roundTurnCommission := oneWayCommission * 2
+	return lots * roundTurnCommission
 }
