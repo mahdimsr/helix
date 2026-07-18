@@ -2,7 +2,6 @@ package strategy
 
 import (
 	"helix/models"
-	"log"
 )
 
 func PulseStrategy(candles []models.Candle) models.BackTest {
@@ -13,6 +12,10 @@ func PulseStrategy(candles []models.Candle) models.BackTest {
 		c := candles[i]
 
 		if !c.IsMarubozu() {
+			continue
+		}
+
+		if !isCandleBodyBigger(candles, i, 100, 60) {
 			continue
 		}
 
@@ -46,20 +49,14 @@ func SimulatePulseTrade(candles []models.Candle, signalIdx int, lookBack, retrac
 
 	if signal.IsGreen() {
 		tp = entry - distPrice
-		sl = entry + 4*distPrice
+		sl = entry + 3*distPrice
 
 		position = models.SellPosition
 	} else {
 		tp = entry + distPrice
-		sl = entry - 4*distPrice
+		sl = entry - 3*distPrice
 
 		position = models.BuyPosition
-	}
-
-	if signal.ReadableTime.UTC().Format("2006-01-02 15:04") == "2026-06-29 10:00" {
-		newCal := dynamicTPPercent(candles, signalIdx, lookBack, retraceNext)
-
-		log.Fatal("bodyPrice: ", signal.Body(), " distPrice: ", distPrice, " tpPct: ", tpPct, " newCal: ", newCal)
 	}
 
 	return simulateTrade(candles, signalIdx, position, entry, tp, sl, fee, leverage)
@@ -209,17 +206,46 @@ func dynamicTPPercent(candles []models.Candle, signalIdx, lookback, n int) float
 		start = 0
 	}
 
-	rct := 0.0
+	sum := 0.0
+	count := 0
 
-	for i := start; i < signalIdx; i++ {
-		if !candles[i].IsMarubozu() {
+	for j := start; j < signalIdx; j++ {
+
+		if !candles[j].IsMarubozu() && candles[j].BodyPercentage() > 0.3 {
 			continue
 		}
-		newRct := maxBodyRetracement(candles, i, n)
-		if newRct > rct {
-			rct = newRct
+
+		r := maxBodyRetracement(candles, j, n)
+		if r <= 0 {
+			continue
+		}
+
+		sum += r
+		count++
+	}
+
+	if count == 0 {
+		return 0
+	}
+	return sum / float64(count)
+}
+
+// this function check if target candle body is bigger than x percentage of its previous candles
+func isCandleBodyBigger(candles []models.Candle, signalIdx int, lookBack int, dominancePercentage float64) bool {
+
+	if signalIdx < lookBack {
+		return false
+	}
+
+	currentCandle := candles[signalIdx]
+
+	smallerCount := 0
+	for i := signalIdx - lookBack; i < signalIdx; i++ {
+		if candles[i].Body() < currentCandle.Body() {
+			smallerCount++
 		}
 	}
 
-	return rct
+	ratio := float64(smallerCount) / float64(lookBack) * 100
+	return ratio >= dominancePercentage
 }
