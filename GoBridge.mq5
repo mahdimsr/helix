@@ -228,7 +228,7 @@ void SendOrderResult(string symbol, string side, double lot, double tp, double s
     req.price        = (side == "BUY") ? ask : bid;
     req.deviation    = 10;
     // req.magic        = 123456;
-    req.type_filling = ORDER_FILLING_FOK;
+    req.type_filling = GetFillingMode(symbol);
     
     if(tp > 0) req.tp = tp;
     if(sl > 0) req.sl = sl;
@@ -251,6 +251,11 @@ void SendOrderResult(string symbol, string side, double lot, double tp, double s
     }
     
     Print("order send result is: " + ok + "\n");
+    Print("OrderSend => ok=", ok,
+      " retcode=", res.retcode,
+      " comment=", res.comment,
+      " ask=", ask, " bid=", bid,
+      " tp=", tp, " sl=", sl);
     
     string envelope = StringFormat(
       "{\"type\":\"ORDER\",\"data\":{\"success\":%s,\"ticket\":%I64d,\"retcode\":%d,\"price\":%.5f,\"tp\":%.5f,\"sl\":%.5f,\"comment\":\"%s\"}} \n",
@@ -335,4 +340,14 @@ bool SendLargeString(string s)
       sent += result;
    }
    return true;
+}
+
+ENUM_ORDER_TYPE_FILLING GetFillingMode(string sym)
+{
+    long filling = SymbolInfoInteger(sym, SYMBOL_FILLING_MODE);
+    if((filling & SYMBOL_FILLING_FOK) == SYMBOL_FILLING_FOK)
+        return ORDER_FILLING_FOK;
+    if((filling & SYMBOL_FILLING_IOC) == SYMBOL_FILLING_IOC)
+        return ORDER_FILLING_IOC;
+    return ORDER_FILLING_RETURN;
 }
