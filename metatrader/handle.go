@@ -31,9 +31,9 @@ func Handle(conn net.Conn) {
 	db := database.MongoConnect()
 
 	symbol := "BTCUSD"
-	timeframe := "PERIOD_M1"
-	Sensitivity := 1
-	ATR := 1
+	timeframe := "PERIOD_M15"
+	Sensitivity := 3
+	ATR := 20
 	candlesCount := 200
 
 	requestCandles(*client, symbol, timeframe, candlesCount)
@@ -86,6 +86,10 @@ func Handle(conn net.Conn) {
 				fmt.Printf("Fetch %d candles \n", len(candles))
 
 				lastCandle := candles[0]
+
+				for i, j := 0, len(candles)-1; i < j; i, j = i+1, j-1 {
+					candles[i], candles[j] = candles[j], candles[i]
+				}
 
 				signal := strategy.CalculateSignal(candles, ATR, Sensitivity)
 
