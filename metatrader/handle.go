@@ -25,16 +25,14 @@ func Handle(conn net.Conn) {
 	}(conn)
 	client := NewMT5Client(conn)
 
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
 	db := database.MongoConnect()
 
 	symbol := "BTCUSD"
-	timeframe := "PERIOD_M1"
-	Sensitivity := 1
-	ATR := 1
-	candlesCount := 200
+	timeframe := "PERIOD_M15"
+	candlesCount := 100
 
 	requestCandles(*client, symbol, timeframe, candlesCount)
 
@@ -85,15 +83,20 @@ func Handle(conn net.Conn) {
 
 				fmt.Printf("Fetch %d candles \n", len(candles))
 
-				lastCandle := candles[0]
+				for i, j := 0, len(candles)-1; i < j; i, j = i+1, j-1 {
+					candles[i], candles[j] = candles[j], candles[i]
+				}
 
-				signal := strategy.CalculateSignal(candles, ATR, Sensitivity)
+				signal, tp, sl := strategy.PulseStrategy(candles)
+
+				fmt.Printf("signal: %s | tp: %.2f | sl: %.2f \n", signal, tp, sl)
 
 				if signal != indicators.NoneSignal {
 
 					fmt.Printf("signal detected: %s", string(signal))
 
-					amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, string(signal))
+					//amount, _, _ := strategy.CalculateOrderUtils(lastCandle.Close, string(signal))
+					amount := 0.1
 					placeOrder(*client, symbol, string(signal), amount, tp, sl)
 				} else {
 					fmt.Println("signal not detected")

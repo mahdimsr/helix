@@ -1,10 +1,62 @@
 package strategy
 
 import (
+	"fmt"
+	"helix/indicators"
 	"helix/models"
 )
 
-func PulseStrategy(candles []models.Candle) models.BackTest {
+func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, slPrice float64) {
+
+	// len(candles)-1 current candle
+	// len(candles)-2 pre candle
+
+	signalIndex := len(candles) - 2
+	lastCandle := candles[signalIndex]
+
+	fmt.Printf("LastCandle info: \n open:%.3f openTime: %s \n ismazuburo: %s \n",
+		lastCandle.Open,
+		lastCandle.ReadableTime,
+		lastCandle.IsMarubozu())
+
+	if !lastCandle.IsMarubozu() {
+		return indicators.NoneSignal, 0, 0
+	}
+
+	/*if !isCandleBodyBigger(candles, signalIndex, 100, 60) {
+		return indicators.NoneSignal, 1, 1
+	}*/
+
+	if lastCandle.BodyPercentage() < 0.15 {
+		return indicators.NoneSignal, 2, 2
+	}
+
+	//tpPct := dynamicTPPercent(candles, signalIndex, 100, 1)
+	tpPct := 0.5
+	if lastCandle.BodyPercentage() < 0.3 {
+
+		tpPct = 0.5
+	} else {
+		tpPct = 0.4
+	}
+
+	distPrice := lastCandle.Body() * tpPct
+	entry := lastCandle.Close
+
+	if lastCandle.IsGreen() {
+		tpPrice = entry - distPrice
+		slPrice = entry + 5*distPrice
+		signal = indicators.SellSignal
+	} else {
+		tpPrice = entry + distPrice
+		slPrice = entry - 5*distPrice
+		signal = indicators.BuySignal
+	}
+
+	return signal, tpPrice, slPrice
+}
+
+func PulseStrategyBacktest(candles []models.Candle) models.BackTest {
 
 	var backtest models.BackTest
 
@@ -232,7 +284,7 @@ func dynamicTPPercent(candles []models.Candle, signalIdx, lookback, n int) float
 	if count == 0 {
 		return 0
 	}
-	return sum / float64(count)
+	return (sum / float64(count)) / 100
 }
 
 // this function check if target candle body is bigger than x percentage of its previous candles

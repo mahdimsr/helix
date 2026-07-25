@@ -1,23 +1,31 @@
 package main
 
 import (
-	"context"
-	"helix/database"
-	"helix/strategy"
+	"fmt"
+	"helix/metatrader"
 	"log"
+	"net"
 )
 
 func main() {
 
-	db := database.MongoConnect()
-	candlesRepo := database.NewCandleRepository(&db)
+	const ADDRESS = "127.0.0.1:8585"
 
-	candles, err := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-06-05", "2026-06-30")
+	fmt.Printf("Starting Listener...")
+
+	listener, err := net.Listen("tcp", ADDRESS)
 	if err != nil {
-		log.Fatalf("Error getching candle: %d", err)
+		log.Fatal(err)
 	}
 
-	backtest := strategy.PulseStrategy(candles)
+	fmt.Printf("Listening to %s", ADDRESS)
 
-	backtest.PrintBacktest()
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		go metatrader.Handle(conn)
+	}
 }
