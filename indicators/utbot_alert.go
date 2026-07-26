@@ -252,3 +252,251 @@ func GetLatestUTBotSignal(candles []models.Candle, sensitivity float64, atrPerio
 
 	return lastSignal
 }
+
+func BacktestUtBotWithTPSL(candles []models.Candle, sensitivity float64, atrPeriod int, tpPercent, slPercent float64) SingleOptimizationResult {
+	n := len(candles)
+	res := SingleOptimizationResult{ATR: atrPeriod, Sensitivity: sensitivity}
+	if n == 0 {
+		return res
+	}
+
+	atrs := make([]float64, n)
+	alpha := 1.0 / float64(atrPeriod)
+	sum := 0.0
+	var prevStop float64
+
+	// وضعیت معامله باز
+	inTrade := false
+	var tradeType string
+	var entryPrice float64
+
+	tpFrac := tpPercent / 100.0 // 0.3% -> 0.003
+	slFrac := slPercent / 100.0 // 0.9% -> 0.009
+
+	for i := 0; i < n; i++ {
+		high := candles[i].High
+		low := candles[i].Low
+		closePrice := candles[i].Close
+
+		// --- ابتدا بررسی خروج معامله باز با TP/SL ---
+		if inTrade {
+			var tpHit, slHit bool
+
+			if tradeType == "Long" {
+				tpLevel := entryPrice * (1 + tpFrac)
+				slLevel := entryPrice * (1 - slFrac)
+				tpHit = high >= tpLevel
+				slHit = low <= slLevel
+			} else { // Short
+				tpLevel := entryPrice * (1 - tpFrac)
+				slLevel := entryPrice * (1 + slFrac)
+				tpHit = low <= tpLevel
+				slHit = high >= slLevel
+			}
+
+			// ابهام درون‌کندلی: اگر هر دو خوردند، محافظه‌کارانه SL را اول فرض می‌کنیم
+			if slHit {
+				res.TotalGain -= slPercent
+				res.LossCount++
+				res.TradeCount++
+				inTrade = false
+			} else if tpHit {
+				res.TotalGain += tpPercent
+				res.WinCount++
+				res.TradeCount++
+				inTrade = false
+			}
+		}
+
+		// --- محاسبات اندیکاتور UT Bot ---
+		if i == 0 {
+			tr := high - low
+			sum += tr
+			atrs[i] = sum
+			prevStop = closePrice
+			continue
+		}
+
+		prevClose := candles[i-1].Close
+		tr := math.Max(high-low, math.Max(math.Abs(high-prevClose), math.Abs(low-prevClose)))
+
+		if i < atrPeriod {
+			sum += tr
+			atrs[i] = sum / float64(i+1)
+		} else {
+			atrs[i] = alpha*tr + (1.0-alpha)*atrs[i-1]
+		}
+
+		nLoss := sensitivity * atrs[i]
+		var stop float64
+
+		if prevClose > prevStop && closePrice > prevStop {
+			stop = math.Max(prevStop, closePrice-nLoss)
+		} else if prevClose < prevStop && closePrice < prevStop {
+			stop = math.Min(prevStop, closePrice+nLoss)
+		} else if closePrice > prevStop {
+			stop = closePrice - nLoss
+		} else {
+			stop = closePrice + nLoss
+		}
+
+		above := prevClose <= prevStop && closePrice > stop
+		below := prevStop <= prevClose && stop > closePrice
+
+		buySignal := closePrice > stop && above
+		sellSignal := closePrice < stop && below
+
+		prevStop = stop
+
+		// --- ورود به معامله (فقط اگر معامله باز نداریم) ---
+		if !inTrade {
+			if buySignal {
+				inTrade = true
+				tradeType = "Long"
+				entryPrice = closePrice
+			} else if sellSignal {
+				inTrade = true
+				tradeType = "Short"
+				entryPrice = closePrice
+			}
+		}
+	}
+
+	if res.TradeCount > 0 {
+		res.WinRate = float64(res.WinCount) / float64(res.TradeCount) * 100
+	}
+
+	return res
+}
+
+func BacktestUTBotDetail(candles []models.Candle, sensitivity float64, atrPeriod int, tpPercent, slPercent float64) DetailedBacktestResult {
+	n := len(candles)
+	var res DetailedBacktestResult
+	res.ATR = atrPeriod
+	res.Sensitivity = sensitivity
+
+	if n == 0 {
+		return res
+	}
+
+	alpha := 1.0 / float64(atrPeriod)
+	atrs := make([]float64, n)
+	var prevStop float64
+
+	inTrade := false
+	var tradeType string
+	var entryPrice float64
+	var entryIndex int
+
+	tpFrac := tpPercent / 100.0
+	slFrac := slPercent / 100.0
+
+	for i := 0; i < n; i++ {
+		high := candles[i].High
+		low := candles[i].Low
+		closePrice := candles[i].Close
+
+		if inTrade {
+			var tpLevel, slLevel float64
+			var tpHit, slHit bool
+
+			if tradeType == "Long" {
+				tpLevel = entryPrice * (1 + tpFrac)
+				slLevel = entryPrice * (1 - slFrac)
+				tpHit = high >= tpLevel
+				slHit = low <= slLevel
+			} else {
+				tpLevel = entryPrice * (1 - tpFrac)
+				slLevel = entryPrice * (1 + slFrac)
+				tpHit = low <= tpLevel
+				slHit = high >= slLevel
+			}
+
+			if slHit || tpHit {
+				trade := TradeRecord{
+					EntryIndex: entryIndex,
+					ExitIndex:  i,
+					TradeType:  tradeType,
+					EntryPrice: entryPrice,
+					EntryTime:  candles[entryIndex].ReadableTime,
+					ExitTime:   candles[i].ReadableTime,
+				}
+				if slHit { // محافظه‌کارانه: SL اولویت داره اگه هر دو خوردن
+					trade.ExitReason = "SL"
+					trade.ExitPrice = slLevel
+					trade.GainPercent = -slPercent
+					res.TotalGain -= slPercent
+					res.LossCount++
+				} else {
+					trade.ExitReason = "TP"
+					trade.ExitPrice = tpLevel
+					trade.GainPercent = tpPercent
+					res.TotalGain += tpPercent
+					res.WinCount++
+				}
+				res.TradeCount++
+				res.Trades = append(res.Trades, trade)
+				inTrade = false
+			}
+		}
+
+		// محاسبه ATR و سیگنال (همون منطق قبلی)
+		if i == 0 {
+			atrs[i] = high - low
+			prevStop = closePrice
+			continue
+		}
+
+		prevClose := candles[i-1].Close
+		tr := math.Max(high-low, math.Max(math.Abs(high-prevClose), math.Abs(low-prevClose)))
+
+		if i < atrPeriod {
+			// میانگینساده در دوره گرم‌شدن
+			sum := 0.0
+			for k := 0; k <= i; k++ {
+				kHigh := candles[k].High
+				kLow := candles[k].Low
+				var kTR float64
+				if k == 0 {
+					kTR = kHigh - kLow
+				} else {
+					kTR = math.Max(kHigh-kLow, math.Max(math.Abs(kHigh-candles[k-1].Close), math.Abs(kLow-candles[k-1].Close)))
+				}
+				sum += kTR
+			}
+			atrs[i] = sum / float64(i+1)
+		} else {
+			atrs[i] = alpha*tr + (1.0-alpha)*atrs[i-1]
+		}
+
+		nLoss := sensitivity * atrs[i]
+		var stop float64
+		if prevClose > prevStop && closePrice > prevStop {
+			stop = math.Max(prevStop, closePrice-nLoss)
+		} else if prevClose < prevStop && closePrice < prevStop {
+			stop = math.Min(prevStop, closePrice+nLoss)
+		} else if closePrice > prevStop {
+			stop = closePrice - nLoss
+		} else {
+			stop = closePrice + nLoss
+		}
+
+		above := prevClose <= prevStop && closePrice > stop
+		below := prevClose >= prevStop && stop > closePrice
+
+		prevStop = stop
+
+		if !inTrade {
+			if closePrice > stop && above {
+				inTrade, tradeType, entryPrice, entryIndex = true, "Long", closePrice, i
+			} else if closePrice < stop && below {
+				inTrade, tradeType, entryPrice, entryIndex = true, "Short", closePrice, i
+			}
+		}
+	}
+
+	if res.TradeCount > 0 {
+		res.WinRate = float64(res.WinCount) / float64(res.TradeCount) * 100
+	}
+	return res
+}

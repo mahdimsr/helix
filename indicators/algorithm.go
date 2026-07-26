@@ -270,3 +270,22 @@ func precalcUTBotStates(candles []models.Candle, sensitivity float64, atrPeriod 
 
 	return states
 }
+
+func OptimizeUTBot(candles []models.Candle, tpPercent, slPercent float64) []SingleOptimizationResult {
+	var results []SingleOptimizationResult
+
+	for atrPeriod := 5; atrPeriod <= 80; atrPeriod += 5 {
+		for s := 1; s <= 10; s++ {
+			sensitivity := float64(s)
+			res := BacktestUtBotWithTPSL(candles, sensitivity, atrPeriod, tpPercent, slPercent)
+			results = append(results, res)
+		}
+	}
+
+	// مرتب‌سازی نزولی بر اساس سود کل
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].TotalGain > results[j].TotalGain
+	})
+
+	return results
+}

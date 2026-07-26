@@ -1,5 +1,7 @@
 package indicators
 
+import "time"
+
 type Signal string
 
 const (
@@ -30,3 +32,30 @@ const (
 	ExitTP ExitMode = iota // خروج با حد سود ثابت
 	ExitSignalReverse
 )
+
+type SingleOptimizationResult struct {
+	ATR         int
+	Sensitivity float64
+	TotalGain   float64 // مجموع سود بر حسب درصد
+	TradeCount  int
+	WinCount    int
+	LossCount   int
+	WinRate     float64
+}
+
+type TradeRecord struct {
+	EntryIndex  int
+	ExitIndex   int
+	TradeType   string // "Long" | "Short"
+	EntryPrice  float64
+	ExitPrice   float64
+	ExitReason  string // "TP" | "SL"
+	GainPercent float64
+	EntryTime   time.Time
+	ExitTime    time.Time
+}
+
+type DetailedBacktestResult struct {
+	SingleOptimizationResult // embed خلاصه آماری
+	Trades                   []TradeRecord
+}
