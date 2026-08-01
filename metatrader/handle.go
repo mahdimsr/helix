@@ -36,6 +36,8 @@ func Handle(conn net.Conn) {
 	ATR := 20
 	candlesCount := 200
 
+	inquiryOpenOrders(*client)
+	time.Sleep(50 * time.Millisecond)
 	requestCandles(*client, symbol, timeframe, candlesCount)
 
 	lines := make(chan string)
@@ -54,9 +56,14 @@ func Handle(conn net.Conn) {
 	for {
 		select {
 		case <-ticker.C:
-			// هر 1 دقیقه درخواست کندل
+
 			fmt.Println("Requesting Candle")
 			requestCandles(*client, symbol, timeframe, candlesCount)
+
+			time.Sleep(50 * time.Millisecond)
+
+			fmt.Println("Inquiry Order")
+			inquiryOpenOrders(*client)
 		case err := <-readErr:
 			if err == io.EOF {
 				log.Println("connection closed by EA (EOF)")
@@ -129,6 +136,34 @@ func Handle(conn net.Conn) {
 			if result.Type == "UPDATE_ORDER" {
 				println("update sl received")
 			}
+
+			if result.Type == "INQUIRY" {
+
+				order := result.fetchDataAsOrder()
+
+				if !order.SUCCESS {
+					log.Println("Order/Ticket not found:", order.Ticket)
+					continue
+				}
+
+				// تفسیر Retcode به عنوان وضعیت
+				switch order.Retcode {
+				case 1000:
+					log.Printf("✅ Position OPEN. Current Price: %.5f | Info: %s", order.Price, order.Comment)
+					// می‌توانید order.Comment را با strings.Split(order.Comment, " | ") پارس کنید اگر نیاز به جزئیات دقیق‌تر دارید
+				case 2000:
+					log.Printf("🔒 Position CLOSED. Close Price: %.5f | Info: %s", order.Price, order.Comment)
+
+					// تشخیص هوشمند TP یا SL خوردن از روی کامنت
+					if strings.Contains(strings.ToLower(order.Comment), "[tp]") {
+						log.Println("🎯 Closed by Take Profit!")
+					} else if strings.Contains(strings.ToLower(order.Comment), "[sl]") {
+						log.Println("🛑 Closed by Stop Loss!")
+					}
+				case 3000:
+					log.Println("❌ Ticket not found in history or active positions.")
+				}
+			}
 		}
 	}
 }
@@ -170,4 +205,18 @@ func updateOrder(client MTClient, ticket int64, stopLoss float64, takeProfit flo
 	}
 
 	return nil
+}
+
+func inquiryOpenOrders(client MTClient) {
+
+	ticket := "88797211"
+
+	cmd := fmt.Sprintf("INQUIRY|%s\n", ticket)
+
+	fmt.Printf("sending CMD is: %s", cmd)
+
+	err := client.SendCommand(cmd)
+	if err != nil {
+		log.Println("Write error:", err)
+	}
 }
