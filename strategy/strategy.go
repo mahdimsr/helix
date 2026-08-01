@@ -13,6 +13,14 @@ func CalculateSignal(candles []models.Candle, ATR int, Sensitivity int) indicato
 	trades := indicators.BacktestUTBot(candles, float64(Sensitivity), ATR)
 
 	var offset int64 = 3600 * 3
+
+	for _, tradeRange := range trades {
+		t := time.Unix(tradeRange.OpenTime-offset, 0).UTC().Format("2006-01-02 15:04:05")
+
+		fmt.Printf("Trade | open:%.4f type:%s time:%s timestamP: %d \n", tradeRange.OpenPrice, tradeRange.Type, t, tradeRange.OpenTime)
+
+	}
+
 	trade := trades[len(trades)-1]
 	t := time.Unix(trade.OpenTime-offset, 0).UTC().Format("2006-01-02 15:04:05")
 	test := time.Unix(trade.OpenTime-offset, 0).UTC()

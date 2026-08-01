@@ -30,8 +30,8 @@ func Handle(conn net.Conn) {
 
 	db := database.MongoConnect()
 
-	symbol := "BTCUSD"
-	timeframe := "PERIOD_M15"
+	symbol := "XAUUSD"
+	timeframe := "PERIOD_M5"
 	Sensitivity := 3
 	ATR := 20
 	candlesCount := 200
