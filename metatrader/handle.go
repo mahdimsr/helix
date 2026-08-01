@@ -36,7 +36,12 @@ func Handle(conn net.Conn) {
 	ATR := 20
 	candlesCount := 200
 
-	inquiryOpenOrders(*client)
+	ticketRepo, err := database.NewFileRepository("tickets.json")
+	if err != nil {
+		log.Fatal("Failed to initialize ticket repository:", err)
+	}
+
+	inquiryOpenOrders(*client, ticketRepo)
 	time.Sleep(50 * time.Millisecond)
 	requestCandles(*client, symbol, timeframe, candlesCount)
 
@@ -63,7 +68,7 @@ func Handle(conn net.Conn) {
 			time.Sleep(50 * time.Millisecond)
 
 			fmt.Println("Inquiry Order")
-			inquiryOpenOrders(*client)
+			inquiryOpenOrders(*client, ticketRepo)
 		case err := <-readErr:
 			if err == io.EOF {
 				log.Println("connection closed by EA (EOF)")
@@ -131,6 +136,11 @@ func Handle(conn net.Conn) {
 
 				fmt.Println("Order Inserted Id By: \n", insertResult.InsertedID)
 				fmt.Printf("OrderResult parameters are retCode: %d | ticket: %d \n", orderResult.Retcode, orderResult.Ticket)
+
+				err = ticketRepo.SaveTicket(orderResult.Ticket)
+				if err != nil {
+					fmt.Println("Save Ticket error: ", err)
+				}
 			}
 
 			if result.Type == "UPDATE_ORDER" {
@@ -162,6 +172,11 @@ func Handle(conn net.Conn) {
 					}
 				case 3000:
 					log.Println("❌ Ticket not found in history or active positions.")
+				}
+
+				err := ticketRepo.RemoveTicket(order.Ticket)
+				if err != nil {
+					fmt.Println("Remove Ticket error: ", err)
 				}
 			}
 		}
@@ -207,16 +222,22 @@ func updateOrder(client MTClient, ticket int64, stopLoss float64, takeProfit flo
 	return nil
 }
 
-func inquiryOpenOrders(client MTClient) {
+func inquiryOpenOrders(client MTClient, repo *database.FileRepository) {
 
-	ticket := "88797211"
+	allTickets := repo.GetAllTickets()
 
-	cmd := fmt.Sprintf("INQUIRY|%s\n", ticket)
+	if len(allTickets) > 0 {
 
-	fmt.Printf("sending CMD is: %s", cmd)
+		for _, ticket := range allTickets {
 
-	err := client.SendCommand(cmd)
-	if err != nil {
-		log.Println("Write error:", err)
+			cmd := fmt.Sprintf("INQUIRY|%s\n", ticket)
+
+			fmt.Printf("sending CMD is: %s", cmd)
+
+			err := client.SendCommand(cmd)
+			if err != nil {
+				log.Println("Write error:", err)
+			}
+		}
 	}
 }
