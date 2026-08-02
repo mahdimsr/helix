@@ -14,12 +14,12 @@ func main() {
 	db := database.MongoConnect()
 	candlesRepo := database.NewCandleRepository(&db)
 
-	symbol := "BTCUSDT"
-	timeframe := "15m"
-	startTime := "2026-07-01"
-	endTime := "2026-07-05"
-	tpPercent := 0.5
-	slPercent := 3.0
+	symbol := "XAUTUSDT"
+	timeframe := "5m"
+	startTime := "2026-07-20"
+	endTime := "2026-08-02"
+	tpPercent := 0.2
+	slPercent := 2.0
 
 	candles, err := candlesRepo.Fetch(context.Background(), symbol, timeframe, startTime, endTime)
 	if err != nil {
