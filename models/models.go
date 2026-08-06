@@ -126,7 +126,7 @@ func (trade *Trade) ReadableTime(timeUnixMilli int64) string {
 	return openTime.Format("2006-01-02 15:04")
 }
 
-func (backtest BackTest) PrintBacktest() {
+func (backtest *BackTest) PrintBacktest() {
 	fmt.Println("========== Backtest Result ==========")
 	fmt.Printf("Total Trades : %d\n", len(backtest.Trades))
 	fmt.Printf("Wins         : %d\n", backtest.Wins)
