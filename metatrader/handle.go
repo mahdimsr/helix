@@ -7,12 +7,16 @@ import (
 	"helix/database"
 	"helix/indicators"
 	"helix/models"
+	"helix/notification"
 	"helix/strategy"
 	"io"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 func Handle(conn net.Conn) {
@@ -30,6 +34,7 @@ func Handle(conn net.Conn) {
 
 	db := database.MongoConnect()
 
+	_ = godotenv.Load()
 	symbol := "XAUUSD"
 	timeframe := "PERIOD_M5"
 	Sensitivity := 3
@@ -110,7 +115,7 @@ func Handle(conn net.Conn) {
 					fmt.Printf("signal detected: %s", string(signal))
 
 					amount, tp, sl := strategy.CalculateOrderUtils(lastCandle.Close, string(signal))
-					placeOrder(*client, symbol, string(signal), amount, tp, sl)
+					placeOrder(*client, symbol, string(signal), amount, lastCandle.Close, tp, sl)
 				} else {
 					fmt.Println("signal not detected")
 				}
@@ -183,7 +188,7 @@ func Handle(conn net.Conn) {
 	}
 }
 
-func placeOrder(client MTClient, symbol string, signal string, lot float64, tp float64, sl float64) {
+func placeOrder(client MTClient, symbol string, signal string, lot, price, tp, sl float64) {
 
 	// PLACE_ORDER|symbol|side|lot|tp|sl
 	cmd := fmt.Sprintf("PLACE_ORDER|%s|%s|%.3f|%.3f|%.3f", symbol, signal, lot, tp, sl)
@@ -191,6 +196,22 @@ func placeOrder(client MTClient, symbol string, signal string, lot float64, tp f
 	if err != nil {
 		log.Println("place order failed: ", err)
 	}
+
+	smsApiKey := os.Getenv("KAVENEGAR_API_KEY")
+	telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
+	telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
+	mobileNumber := os.Getenv("MOBILE")
+
+	smsService := notification.NewKavenegarService(smsApiKey)
+	smsService.SendVerificationSMS(mobileNumber, "quantum-order", map[string]string{
+		"token":   symbol,
+		"token3":  fmt.Sprintf("%f", price),
+		"token10": signal,
+	})
+
+	telegramService := notification.NewTelegramService(telegramApiKey)
+	text := fmt.Sprintf("Symbol: %s \n Signal: %s \n ", symbol, signal)
+	telegramService.SendMessage(telegramChatId, text, "HTML")
 }
 
 func requestCandles(client MTClient, symbol string, timeframe string, candlesCount int) {
