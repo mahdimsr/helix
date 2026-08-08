@@ -247,16 +247,12 @@ func (r StrategyResult) PrintResult() {
 	fmt.Println("-------------------------------------")
 	fmt.Println("Trades List:")
 	for i, t := range r.Trades {
-		status := "WIN"
-		if t.GainPercent < 0 {
-			status = "LOSS"
-		}
 
 		openTime := time.UnixMilli(t.OpenTime).UTC().Format("2006-01-02 15:04")
 		closeTime := time.UnixMilli(t.CloseTime).UTC().Format("2006-01-02 15:04")
 
 		fmt.Printf("#%d %s | entry=%.2f exit=%.2f pct=%.3f%% status=%s open=%s close=%s\n",
-			i+1, t.Type, t.OpenPrice, t.ClosePrice, t.GainPercent, status, openTime, closeTime)
+			i+1, t.Type, t.OpenPrice, t.ClosePrice, t.GainPercent, t.Status, openTime, closeTime)
 	}
 	fmt.Println("=====================================")
 }
@@ -311,9 +307,28 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 	runupPrice, riskPrice := price, price
 	runupTime, riskTime := open.Time, open.Time
 
+	// ========== محاسبه قیمت لیکوئید ==========
+	// فرمول ساده‌شده صرافی‌ها (مثل بایننس)
+	// LiqPrice = Entry * (1 ± 1/Leverage ± MaintenanceMarginRate)
+	var liqPrice float64
+	isLeveraged := leverage > 1
+	mmRate := 0.005 // Maintenance Margin Rate (0.5%) - فرض استاندارد
+
+	if isLeveraged {
+		if position == models.BuyPosition {
+			// Long: لیکوئید در قیمت پایین‌تر رخ می‌دهد
+			// هرچه لوریج بالاتر، liqPrice به Entry نزدیک‌تر
+			liqPrice = price * (1 - 1.0/float64(leverage) + mmRate)
+		} else {
+			// Short: لیکوئید در قیمت بالاتر رخ می‌دهد
+			liqPrice = price * (1 + 1.0/float64(leverage) - mmRate)
+		}
+	}
+
 	for j := entryIdx + 1; j < len(candles); j++ {
 		bar := candles[j]
 
+		// ---------- آپدیت Runup و Risk ----------
 		if position == models.BuyPosition {
 			if bar.High > runupPrice {
 				runupPrice = bar.High
@@ -323,7 +338,7 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 				riskPrice = bar.Low
 				riskTime = bar.Time
 			}
-		} else { // Short
+		} else {
 			if bar.Low < runupPrice {
 				runupPrice = bar.Low
 				runupTime = bar.Time
@@ -334,24 +349,51 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 			}
 		}
 
-		var hitTP, hitSL bool
+		// ---------- بررسی برخوردها ----------
+		var hitTP, hitSL, hitLiq bool
 		if position == models.BuyPosition {
 			hitTP = bar.High >= tp
 			hitSL = bar.Low <= sl
+			if isLeveraged {
+				hitLiq = bar.Low <= liqPrice
+			}
 		} else {
 			hitTP = bar.Low <= tp
 			hitSL = bar.High >= sl
+			if isLeveraged {
+				hitLiq = bar.High >= liqPrice
+			}
 		}
 
-		if !hitTP && !hitSL {
+		if !hitTP && !hitSL && !hitLiq {
 			continue
 		}
-		won := hitTP && !hitSL
-		exitPrice := sl
-		if won {
+
+		// ========== تعیین نتیجه معامله ==========
+		// اولویت (Priority): لیکوئید > SL > TP
+		// چرا لیکوئید اولویت دارد؟
+		// اگر در یک کندل Wick (سایه) بلند داشته باشیم که هم TP و هم Liq را لمس کند،
+		// در واقعیت ممکن است نوسان لحظه‌ای باعث لیکوئید شدن قبل از رسیدن به TP شود.
+		// رویکرد ما محافظه‌کارانه (Conservative) است: بدترین حالت را فرض می‌کنیم.
+
+		var status string
+		var exitPrice float64
+
+		if hitLiq {
+			// 🚨 لیکوئید شد - کل مارجین از دست رفت
+			status = "Liq"
+			exitPrice = liqPrice
+		} else if hitSL {
+			// ❌ حد ضرر خورد
+			status = "SL"
+			exitPrice = sl
+		} else {
+			// ✅ حد سود خورد
+			status = "TP"
 			exitPrice = tp
 		}
 
+		// محدود کردن Runup و Risk به TP و SL برای محاسبات دقیق‌تر
 		if position == models.BuyPosition {
 			if runupPrice > tp {
 				runupPrice = tp
@@ -359,12 +401,22 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 			if riskPrice < sl {
 				riskPrice = sl
 			}
+			// اگر لیکوئید شده، riskPrice باید تا liqPrice پایین بیاید
+			if hitLiq && riskPrice > liqPrice {
+				riskPrice = liqPrice
+				riskTime = bar.Time
+			}
 		} else {
 			if runupPrice < tp {
 				runupPrice = tp
 			}
 			if riskPrice > sl {
 				riskPrice = sl
+			}
+			// اگر لیکوئید شده، riskPrice باید تا liqPrice بالا برود
+			if hitLiq && riskPrice < liqPrice {
+				riskPrice = liqPrice
+				riskTime = bar.Time
 			}
 		}
 
@@ -379,15 +431,17 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 		t.RiskPrice = riskPrice
 		t.RiskTime = riskTime
 		t.RiskDuration = riskTime - open.Time
+		t.Status = status
 
+		// ---------- محاسبه سود/ضرر نهایی ----------
 		if position == models.BuyPosition {
 			t.GainPercent = models.CalcGainPercent(margin, price, exitPrice, leverage, fee, true)
 			t.RunupPercent = (runupPrice - price) / price * 100
-			t.RiskPercent = (riskPrice - price) / price * 100 // معمولاً منفی
+			t.RiskPercent = (riskPrice - price) / price * 100
 		} else {
 			t.GainPercent = models.CalcGainPercent(margin, price, exitPrice, leverage, fee, false)
 			t.RunupPercent = (price - runupPrice) / price * 100
-			t.RiskPercent = (price - riskPrice) / price * 100 // معمولاً منفی
+			t.RiskPercent = (price - riskPrice) / price * 100
 		}
 
 		return t, true

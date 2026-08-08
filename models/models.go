@@ -38,6 +38,7 @@ type Trade struct {
 	ATR           int
 	Sensitivity   float64
 	GainPercent   float64
+	Status        string
 }
 
 type Order struct {
