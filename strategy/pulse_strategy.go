@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"helix/models"
 	"sort"
+	"time"
 )
 
 type CapitalMetrics struct {
@@ -29,7 +30,19 @@ type StrategyResult struct {
 	Capital CapitalMetrics
 }
 
-func PulseStrategy(candles []models.Candle, allocationPercent float64, initialCapital float64, maxConcurrentTrades int) StrategyResult {
+// PulseStrategyConfig پارامترهای قابل تنظیم استراتژی
+type PulseStrategyConfig struct {
+	BodyThresholdPercent float64 // حداقل درصد بادی کندل برای سیگنال (مثلاً 0.1)
+	TPBodyRatio          float64 // نسبت TP به بادی کندل (0.25 یعنی ۲۵٪ کندل)
+	SLMultiplier         float64 // ضریب حد ضرر نسبت به فاصله TP (مثلاً 5)
+	AllocationPercent    float64 // درصد سرمایه درگیر در هر معامله (مثلاً 10)
+	Leverage             int     // لوریج (مثلاً 5)
+	FeePercent           float64 // کارمزد هر معامله (مثلاً 0.1)
+	InitialCapital       float64 // سرمایه اولیه (مثلاً 1000)
+	MaxConcurrentTrades  int     // حداکثر معاملات همزمان (مثلاً 10)
+}
+
+func PulseStrategy(candles []models.Candle, cfg PulseStrategyConfig) StrategyResult {
 
 	// ========== گام ۱: شناسایی سیگنال‌های معتبر ==========
 	type signalInfo struct {
@@ -37,16 +50,16 @@ func PulseStrategy(candles []models.Candle, allocationPercent float64, initialCa
 	}
 	var signals []signalInfo
 
-	for i := 1; i < len(candles); i++ {
+	for i := 0; i < len(candles); i++ {
 		c := candles[i]
 
+		// شرط ۱: کندل ماروبوزو باشد
 		if !c.IsMarubozu() {
 			continue
 		}
-		if !isCandleBodyBigger(candles, i, 100, 60) {
-			continue
-		}
-		if c.BodyPercentage() < 0.3 {
+
+		// شرط ۲: بادی کندل بیشتر از آستانه مشخص شده باشد
+		if c.BodyPercentage() < cfg.BodyThresholdPercent {
 			continue
 		}
 
@@ -54,10 +67,9 @@ func PulseStrategy(candles []models.Candle, allocationPercent float64, initialCa
 	}
 
 	// ========== گام ۲: شبیه‌سازی مستقل هر سیگنال ==========
-	// (منطق TP/SL دقیقاً مثل قبل است)
 	var simulatedTrades []models.Trade
 	for _, sig := range signals {
-		trade, closed := SimulatePulseTrade(candles, sig.index, 100, 10, 1, 100, 8)
+		trade, closed := SimulatePulseTrade(candles, sig.index, cfg)
 		if closed {
 			simulatedTrades = append(simulatedTrades, trade)
 		}
@@ -81,7 +93,7 @@ func PulseStrategy(candles []models.Candle, allocationPercent float64, initialCa
 			}
 		}
 
-		if openCount < maxConcurrentTrades {
+		if openCount < cfg.MaxConcurrentTrades {
 			acceptedTrades = append(acceptedTrades, trade)
 		}
 	}
@@ -89,7 +101,7 @@ func PulseStrategy(candles []models.Candle, allocationPercent float64, initialCa
 	// ========== گام ۵: محاسبه نتایج نهایی ==========
 	result := StrategyResult{
 		Trades:  acceptedTrades,
-		Capital: calculateCapitalParallel(acceptedTrades, allocationPercent, initialCapital),
+		Capital: calculateCapitalParallel(acceptedTrades, cfg.AllocationPercent, cfg.InitialCapital),
 	}
 	result.calculateTradeStats()
 
@@ -239,43 +251,45 @@ func (r StrategyResult) PrintResult() {
 		if t.GainPercent < 0 {
 			status = "LOSS"
 		}
-		fmt.Printf("#%d %s | entry=%.2f exit=%.2f pct=%.3f%% status=%s open=%d close=%d\n",
-			i+1, t.Type, t.OpenPrice, t.ClosePrice, t.GainPercent, status, t.OpenTime, t.CloseTime)
+
+		openTime := time.UnixMilli(t.OpenTime).UTC().Format("2006-01-02 15:04")
+		closeTime := time.UnixMilli(t.CloseTime).UTC().Format("2006-01-02 15:04")
+
+		fmt.Printf("#%d %s | entry=%.2f exit=%.2f pct=%.3f%% status=%s open=%s close=%s\n",
+			i+1, t.Type, t.OpenPrice, t.ClosePrice, t.GainPercent, status, openTime, closeTime)
 	}
 	fmt.Println("=====================================")
 }
 
-func SimulatePulseTrade(candles []models.Candle, signalIdx int, lookBack, retraceNext, leverage int, margin, fee float64) (models.Trade, bool) {
+func SimulatePulseTrade(candles []models.Candle, signalIdx int, cfg PulseStrategyConfig) (models.Trade, bool) {
 
-	//preCandle := candles[signalIdx-1]
 	signal := candles[signalIdx]
 
-	tpPct := dynamicTPPercent(candles, signalIdx, lookBack, retraceNext)
-	//tpPct := 30.0
-	if tpPct < 0 {
-		// we will not trade
-		return models.Trade{}, false
-	}
-
-	distPrice := signal.Body() * (tpPct / 100)
+	// نقطه ورود: قیمت Close کندل سیگنال
 	entry := signal.Close
+
+	// فاصله TP: نسبت مشخص‌شده از بادی کندل
+	// TPBodyRatio = 0.25 یعنی ۲۵٪ بادی کندل
+	tpDist := signal.Body() * cfg.TPBodyRatio
 
 	var tp, sl float64
 	var position models.Position
 
 	if signal.IsGreen() {
-		tp = entry - distPrice
-		sl = entry + 5*distPrice
-
+		// کندل صعودی -> معامله فروش (خلاف جهت کندل)
 		position = models.SellPosition
+		tp = entry - tpDist
+		// حد ضرر = ضریب × فاصله TP
+		sl = entry + cfg.SLMultiplier*tpDist
 	} else {
-		tp = entry + distPrice
-		sl = entry - 5*distPrice
-
+		// کندل نزولی -> معامله خرید (خلاف جهت کندل)
 		position = models.BuyPosition
+		tp = entry + tpDist
+		// حد ضرر = ضریب × فاصله TP
+		sl = entry - cfg.SLMultiplier*tpDist
 	}
 
-	return simulateTrade(candles, signalIdx, position, entry, tp, sl, margin, fee, leverage)
+	return simulateTrade(candles, signalIdx, position, entry, tp, sl, cfg.AllocationPercent, cfg.FeePercent, cfg.Leverage)
 }
 
 func simulateTrade(candles []models.Candle, entryIdx int, position models.Position, price, tp, sl, margin, fee float64, leverage int) (models.Trade, bool) {
@@ -366,8 +380,6 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 		t.RiskTime = riskTime
 		t.RiskDuration = riskTime - open.Time
 
-		//percentageFee := models.FixedFeeToPercent(5, 100, leverage)
-
 		if position == models.BuyPosition {
 			t.GainPercent = models.CalcGainPercent(margin, price, exitPrice, leverage, fee, true)
 			t.RunupPercent = (runupPrice - price) / price * 100
@@ -382,139 +394,4 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 	}
 
 	return models.Trade{}, false
-}
-
-func maxBodyRetracement(candles []models.Candle, idx, n int) float64 {
-	c := candles[idx]
-	body := c.Body()
-	if body == 0 {
-		return 0
-	}
-
-	maxRetr := 0.0
-
-	for i := idx + 1; i <= idx+n && i < len(candles); i++ {
-
-		var retr float64
-		if c.IsGreen() {
-			// how much price get lower of close price
-			retr = (c.Close - candles[i].Low) / body * 100
-		} else {
-			// how much price get upper of close price
-			retr = (candles[i].High - c.Close) / body * 100
-		}
-		if retr > maxRetr {
-			maxRetr = retr
-		}
-	}
-
-	if maxRetr < 0 {
-		return 0
-	}
-
-	//maxRetr = (maxRetr / 100)
-	return maxRetr
-}
-
-func dynamicTPPercent(candles []models.Candle, signalIdx, lookback, n int) float64 {
-	start := signalIdx - lookback
-	if start < 0 {
-		start = 0
-	}
-
-	sum := 0.0
-	count := 0
-
-	for j := start; j < signalIdx; j++ {
-
-		if !candles[j].IsMarubozu() && candles[j].BodyPercentage() > 0.3 {
-			continue
-		}
-
-		r := maxBodyRetracement(candles, j, n)
-		if r <= 0 {
-			continue
-		}
-
-		sum += r
-		count++
-	}
-
-	if count == 0 {
-		return 0
-	}
-	return sum / float64(count)
-}
-
-// this function check if target candle body is bigger than x percentage of its previous candles
-func isCandleBodyBigger(candles []models.Candle, signalIdx int, lookBack int, dominancePercentage float64) bool {
-
-	if signalIdx < lookBack {
-		return false
-	}
-
-	currentCandle := candles[signalIdx]
-
-	smallerCount := 0
-	for i := signalIdx - lookBack; i < signalIdx; i++ {
-		if candles[i].Body() < currentCandle.Body() {
-			smallerCount++
-		}
-	}
-
-	ratio := float64(smallerCount) / float64(lookBack) * 100
-	return ratio >= dominancePercentage
-}
-
-func CalculateCapitalMetrics(trades []models.Trade, allocationPercent float64, initialCapital float64) CapitalMetrics {
-	if len(trades) == 0 || initialCapital <= 0 {
-		return CapitalMetrics{}
-	}
-
-	allocation := allocationPercent / 100.0
-
-	currentCapital := initialCapital
-	peakCapital := initialCapital
-	maxDrawdown := 0.0
-	simpleSum := 0.0
-
-	for _, t := range trades {
-
-		tradeROI := t.GainPercent / 100.0
-
-		simpleSum += tradeROI * allocation
-
-		allocatedMargin := currentCapital * allocation
-		profitLoss := allocatedMargin * tradeROI
-		currentCapital += profitLoss
-
-		if currentCapital < 0 {
-			currentCapital = 0
-		}
-
-		if currentCapital > peakCapital {
-			peakCapital = currentCapital
-		}
-
-		drawdown := (peakCapital - currentCapital) / peakCapital * 100
-		if drawdown > maxDrawdown {
-			maxDrawdown = drawdown
-		}
-	}
-
-	return CapitalMetrics{
-		SimpleGainPercent:   simpleSum * 100,
-		CompoundGainPercent: ((currentCapital - initialCapital) / initialCapital) * 100,
-		MaxDrawdownPercent:  maxDrawdown,
-		FinalCapital:        currentCapital,
-	}
-}
-
-func (metric *CapitalMetrics) PrintCapitalMetrics() {
-	fmt.Println("========== Metrics Result ==========")
-	fmt.Printf("Simple : %.2f\n", metric.SimpleGainPercent)
-	fmt.Printf("Compund         : %.2f\n", metric.CompoundGainPercent)
-	fmt.Printf("Max Drawdown       : %.2f\n", metric.MaxDrawdownPercent)
-	fmt.Printf("Final Capital     : %.2f%%\n", metric.FinalCapital)
-	fmt.Println("-------------------------------------")
 }
