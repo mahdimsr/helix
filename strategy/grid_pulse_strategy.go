@@ -21,29 +21,29 @@ type OptimizationResult struct {
 	FinalCapital float64
 }
 
-// ============================================================
-// اجرای بهینه‌سازی
-// ============================================================
+// TradeWithAlloc برای نگهداری معامله و درصد سرمایه مخصوص آن در حالت داینامیک
+type TradeWithAlloc struct {
+	Trade      models.Trade
+	Allocation float64
+}
 
-// RunPulseOptimization تمام ترکیبات ممکن را تست می‌کند
-// و 5 ترکیب برتر را بر اساس سود مرکب برمی‌گرداند
+// ============================================================
+// اجرای بهینه‌سازی (با فیلترهای ایمنی و WinRate)
+// ============================================================
 func RunPulseOptimization(candles []models.Candle) []OptimizationResult {
-
-	// ========== مقادیر تست ==========
-	bodyThresholds := []float64{0.1, 0.2, 0.3}
+	bodyThresholds := []float64{0.3}
 	tpBodyRatios := []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0}
 	slMultipliers := []int{2, 3, 4, 5, 6, 7, 8, 9, 10}
 	allocations := []float64{10, 15, 20, 25, 30, 35, 40, 45, 50}
-	leverages := []int{1, 5, 10, 20, 50, 100}
+	leverages := []int{10}
 
 	totalCombos := len(bodyThresholds) * len(tpBodyRatios) * len(slMultipliers) * len(allocations) * len(leverages)
 	fmt.Printf("🚀 Starting optimization with %d combinations...\n\n", totalCombos)
 
 	var allResults []OptimizationResult
 	current := 0
-	skipped := 0 // شمارنده ترکیب‌های رد شده توسط فیلتر ایمنی
+	skipped := 0
 
-	// ========== حلقه‌های تو در تو برای تمام ترکیبات ==========
 	for _, bt := range bodyThresholds {
 		for _, tpr := range tpBodyRatios {
 			for _, slm := range slMultipliers {
@@ -51,29 +51,25 @@ func RunPulseOptimization(candles []models.Candle) []OptimizationResult {
 					for _, lev := range leverages {
 
 						// ==========================================
-						// 🛡️ فیلتر ایمنی: جلوگیری از لیکوئید شدن قبل از SL
+						// 🛡️ فیلتر ایمنی: جلوگیری از لیکوئید شدن (حتی در لوریج 100)
 						// ==========================================
-						// فرض: میانگین بادی یک کندل ماروبوزوی معتبر حدود 0.5% است
-						estimatedBodyPercent := 0.5
-
-						// فاصله حد ضرر (SL) از نقطه ورود به درصد
+						// میانگین بادی کندل‌های ماروبوزو در تایم‌فریم 15 دقیقه معمولاً بین 0.5% تا 1.5% است.
+						// برای سخت‌گیرانه‌ترین حالت، 1.0% را به عنوان پایه در نظر می‌گیریم.
+						estimatedBodyPercent := 1.0
 						slDistancePercent := tpr * float64(slm) * estimatedBodyPercent
 
-						// فاصله تقریبی قیمت لیکوئید از نقطه ورود به درصد (100 / لوریج)
-						liqDistancePercent := 100.0 / float64(lev)
+						// فاصله لیکوئید با 15% حاشیه ایمنی (Safety Buffer)
+						// در لوریج 100، فاصله لیکوئید حدود 1% است. 15% حاشیه = 0.85%
+						liqDistancePercent := (100.0 / float64(lev)) * 0.85
 
-						// اگر قیمت لیکوئید نزدیک‌تر از حد ضرر باشد، این ترکیب پرریسک است!
-						// یعنی قبل از اینکه SL بخورد، کل مارجین از دست می‌رود.
-						if liqDistancePercent <= slDistancePercent {
+						if slDistancePercent >= liqDistancePercent {
 							skipped++
-							continue // رد کردن این ترکیب و رفتن به ترکیب بعدی
+							continue // رد کردن ترکیب‌های پرریسک
 						}
 						// ==========================================
 
 						current++
-
-						// محاسبه MaxConcurrentTrades
-						maxConcurrent := int(1000.0 / alloc)
+						maxConcurrent := int(100.0 / alloc)
 
 						cfg := PulseStrategyConfig{
 							BodyThresholdPercent: bt,
@@ -86,15 +82,22 @@ func RunPulseOptimization(candles []models.Candle) []OptimizationResult {
 							MaxConcurrentTrades:  maxConcurrent,
 						}
 
-						// اجرای استراتژی
 						strategyResult := PulseStrategy(candles, cfg)
 
-						// صرف‌نظر از نتایج با تعداد معاملات خیلی کم
 						if strategyResult.TotalTrades < 5 {
 							continue
 						}
 
-						// ذخیره نتیجه
+						// ==========================================
+						// 🎯 فیلتر نرخ برد (WinRate) - هدف: 30% برخورد با SL
+						// ==========================================
+						// اگر 30% معاملات SL بخورند، یعنی WinRate باید حدود 70% باشد.
+						// ما بازه 60% تا 80% را به عنوان نتایج معتبر و سودده می‌پذیریم.
+						if strategyResult.WinRate < 70.0 {
+							continue
+						}
+						// ==========================================
+
 						allResults = append(allResults, OptimizationResult{
 							Config:       cfg,
 							CompoundGain: strategyResult.Capital.CompoundGainPercent,
@@ -105,7 +108,6 @@ func RunPulseOptimization(candles []models.Candle) []OptimizationResult {
 							FinalCapital: strategyResult.Capital.FinalCapital,
 						})
 
-						// نمایش پیشرفت هر 500 تا
 						if current%500 == 0 {
 							fmt.Printf("⏳ Progress: %d tested | %d skipped\n", current, skipped)
 						}
@@ -115,15 +117,13 @@ func RunPulseOptimization(candles []models.Candle) []OptimizationResult {
 		}
 	}
 
-	fmt.Printf("✅ Optimization completed. Tested: %d | Skipped (Unsafe): %d\n", current, skipped)
+	fmt.Printf("✅ Optimization completed. Tested: %d | Skipped (Unsafe/Bad WinRate): %d\n", current, skipped)
 	fmt.Println("Sorting results...\n")
 
-	// ========== سورت بر اساس CompoundGain (نزولی) ==========
 	sort.Slice(allResults, func(i, j int) bool {
 		return allResults[i].CompoundGain > allResults[j].CompoundGain
 	})
 
-	// ========== انتخاب 5 تای برتر ==========
 	topCount := 5
 	if len(allResults) < topCount {
 		topCount = len(allResults)
@@ -136,7 +136,6 @@ func RunPulseOptimization(candles []models.Candle) []OptimizationResult {
 	}
 
 	printTopResults(allResults, topCount)
-
 	return topResults
 }
 

@@ -251,8 +251,8 @@ func (r StrategyResult) PrintResult() {
 		openTime := time.UnixMilli(t.OpenTime).UTC().Format("2006-01-02 15:04")
 		closeTime := time.UnixMilli(t.CloseTime).UTC().Format("2006-01-02 15:04")
 
-		fmt.Printf("#%d %s | entry=%.2f exit=%.2f pct=%.3f%% status=%s open=%s close=%s\n",
-			i+1, t.Type, t.OpenPrice, t.ClosePrice, t.GainPercent, t.Status, openTime, closeTime)
+		fmt.Printf("#%d %s | entry=%.2f exit=%.2f tp:%.3f sl:%.3f pct=%.3f%% status=%s open=%s close=%s\n",
+			i+1, t.Type, t.OpenPrice, t.ClosePrice, t.Tp, t.Sl, t.GainPercent, t.Status, openTime, closeTime)
 	}
 	fmt.Println("=====================================")
 }
@@ -276,13 +276,13 @@ func SimulatePulseTrade(candles []models.Candle, signalIdx int, cfg PulseStrateg
 		position = models.SellPosition
 		tp = entry - tpDist
 		// حد ضرر = ضریب × فاصله TP
-		sl = entry + cfg.SLMultiplier*tpDist
+		sl = entry + (cfg.SLMultiplier * tpDist)
 	} else {
 		// کندل نزولی -> معامله خرید (خلاف جهت کندل)
 		position = models.BuyPosition
 		tp = entry + tpDist
 		// حد ضرر = ضریب × فاصله TP
-		sl = entry - cfg.SLMultiplier*tpDist
+		sl = entry - (cfg.SLMultiplier * tpDist)
 	}
 
 	return simulateTrade(candles, signalIdx, position, entry, tp, sl, cfg.AllocationPercent, cfg.FeePercent, cfg.Leverage)
@@ -420,6 +420,9 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 			}
 		}
 
+		t.Tp = tp
+		t.Sl = sl
+
 		t.ClosePrice = exitPrice
 		t.CloseTime = bar.Time
 		t.Duration = bar.Time - open.Time
@@ -448,4 +451,8 @@ func simulateTrade(candles []models.Candle, entryIdx int, position models.Positi
 	}
 
 	return models.Trade{}, false
+}
+
+func calculateTargetPrice(entryPrice float64, percentage float64) float64 {
+	return entryPrice * (1 + (percentage / 100))
 }

@@ -39,6 +39,8 @@ type Trade struct {
 	Sensitivity   float64
 	GainPercent   float64
 	Status        string
+	Tp            float64
+	Sl            float64
 }
 
 type Order struct {
