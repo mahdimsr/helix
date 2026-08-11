@@ -210,7 +210,7 @@ func placeOrder(client MTClient, symbol string, signal string, lot, price, tp, s
 	})
 
 	telegramService := notification.NewTelegramService(telegramApiKey)
-	text := fmt.Sprintf("Symbol: %s \n Signal: %s \n ", symbol, signal)
+	text := fmt.Sprintf("Open \nSide: %s \nSymbol: %s \nexchange: %s\n", signal, symbol, "nova")
 	telegramService.SendMessage(telegramChatId, text, "HTML")
 }
 
