@@ -6,6 +6,7 @@ import (
 	"helix/models"
 	"log"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -76,4 +77,26 @@ func (socketResult SocketResult) fetchDataAsOrder() OrderResult {
 	}
 
 	return orderResult
+}
+
+func (order OrderResult) ParsComment() map[string]string {
+
+	result := make(map[string]string)
+
+	// ۱. جدا کردن بخش‌ها با استفاده از " | "
+	parts := strings.Split(order.Comment, " | ")
+
+	for _, part := range parts {
+		// ۲. جدا کردن کلید و مقدار با استفاده از اولین ":"
+		// از SplitN با مقدار ۲ استفاده می‌کنیم تا اگر خود مقدار شامل ":" بود (مثل ساعت)، خراب نشود
+		kv := strings.SplitN(part, ":", 2)
+
+		if len(kv) == 2 {
+			key := strings.TrimSpace(kv[0])
+			value := strings.TrimSpace(kv[1])
+			result[key] = value
+		}
+	}
+
+	return result
 }

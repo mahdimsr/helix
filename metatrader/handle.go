@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,9 +47,9 @@ func Handle(conn net.Conn) {
 		log.Fatal("Failed to initialize ticket repository:", err)
 	}
 
-	inquiryOpenOrders(*client, ticketRepo)
-	time.Sleep(50 * time.Millisecond)
 	requestCandles(*client, symbol, timeframe, candlesCount)
+	time.Sleep(50 * time.Millisecond)
+	inquiryOpenOrders(*client, ticketRepo)
 
 	lines := make(chan string)
 	readErr := make(chan error)
@@ -169,19 +170,55 @@ func Handle(conn net.Conn) {
 				case 2000:
 					log.Printf("🔒 Position CLOSED. Close Price: %.5f | Info: %s", order.Price, order.Comment)
 
-					// تشخیص هوشمند TP یا SL خوردن از روی کامنت
-					if strings.Contains(strings.ToLower(order.Comment), "[tp]") {
+					comment := order.ParsComment()
+
+					profitString := comment["PRF"]
+					profit, _ := strconv.ParseFloat(profitString, 64)
+					signal := comment["TYPE"]
+
+					smsApiKey := os.Getenv("KAVENEGAR_API_KEY")
+					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
+					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
+					mobileNumber := os.Getenv("MOBILE")
+					appName := os.Getenv("APP_NAME")
+
+					smsService := notification.NewKavenegarService(smsApiKey)
+					telegramService := notification.NewTelegramService(telegramApiKey)
+
+					var text string
+					var params map[string]string
+
+					if profit > 0 {
 						log.Println("🎯 Closed by Take Profit!")
-					} else if strings.Contains(strings.ToLower(order.Comment), "[sl]") {
+						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "TP", profit)
+						params = map[string]string{
+							"token":  symbol,
+							"token2": fmt.Sprintf("%f", profit),
+						}
+					} else {
 						log.Println("🛑 Closed by Stop Loss!")
+						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "SL", profit)
+						params = map[string]string{
+							"token":  symbol,
+							"token2": fmt.Sprintf("%f", profit),
+						}
 					}
+
+					smsService.SendVerificationSMS(mobileNumber, "quantum-close", params)
+					telegramService.SendMessage(telegramChatId, text, "HTML")
+
+					err := ticketRepo.RemoveTicket(order.Ticket)
+					if err != nil {
+						fmt.Println("Remove Ticket error: ", err)
+					}
+
 				case 3000:
 					log.Println("❌ Ticket not found in history or active positions.")
-				}
 
-				err := ticketRepo.RemoveTicket(order.Ticket)
-				if err != nil {
-					fmt.Println("Remove Ticket error: ", err)
+					err := ticketRepo.RemoveTicket(order.Ticket)
+					if err != nil {
+						fmt.Println("Remove Ticket error: ", err)
+					}
 				}
 			}
 		}
@@ -251,7 +288,7 @@ func inquiryOpenOrders(client MTClient, repo *database.FileRepository) {
 
 		for _, ticket := range allTickets {
 
-			cmd := fmt.Sprintf("INQUIRY|%s\n", ticket)
+			cmd := fmt.Sprintf("INQUIRY|%d\n", ticket)
 
 			fmt.Printf("sending CMD is: %s", cmd)
 
