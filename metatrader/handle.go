@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 func Handle(conn net.Conn) {
@@ -31,6 +33,7 @@ func Handle(conn net.Conn) {
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
+	_ = godotenv.Load()
 	db := database.MongoConnect()
 
 	symbol := "BTCUSD"
