@@ -70,100 +70,109 @@ void Reconnect()
    sock = INVALID_HANDLE;
 }
 
-// خواندن دستورات از Go و اجرای آن‌ها
 void HandleCommands(int socket)
 {
    uint len = SocketIsReadable(socket);
    if(len == 0) return;
 
-   string incoming = "";
    uchar buf[];
    int read = SocketRead(socket, buf, len, 500);
-   if(read > 0)
-      incoming = CharArrayToString(buf, 0, read, CP_UTF8);
+   if(read <= 0) return;
 
+   string incoming = CharArrayToString(buf, 0, read, CP_UTF8);
+   
+   // حذف فاصله‌ها و اینترهای اضافی از ابتدا و انتهای کل رشته
+   StringTrimRight(incoming);
+   StringTrimLeft(incoming);
+   
    if(StringLen(incoming) == 0) return;
 
-   StringTrimLeft(incoming);
-   StringTrimRight(incoming);
+   // ۱. ابتدا رشته را بر اساس خط جدید (\n) به دستورات جداگانه تقسیم می‌کنیم
+   string lines[];
+   int totalLines = StringSplit(incoming, '\n', lines);
 
-   Print("Received from Go: ", incoming);
-
-   
-   string parts[];
-   int n = StringSplit(incoming, '|', parts);
-   string command = parts[0];
-   
-   if(command == "GET_CANDLES" && n>=4)
-   {   
-      // GET_CANDLES|symbol|timeframe|count
-      
-      string symbol = parts[1];
-      string timeframeString = parts[2];
-      int count = (int)StringToInteger(parts[3]);
-
-      ENUM_TIMEFRAMES timeframe = StringToTimeframe(timeframeString);
-      if(timeframe == PERIOD_CURRENT)
-      {
-         Print("Invalid timeframe: ", timeframeString);
-         return;
-      }
-
-      string json = GetCandlesJSON(symbol, timeframe, count);
-      if(json != "")
-      {
-         if(SendCandles(json))
-             Print("Sent ", StringLen(json), " bytes JSON");
-         else
-            Print("Failed to send candles");
-      }
-      return;
-   }
-   else if(command == "PLACE_ORDER")
+   // ۲. هر خط (دستور) را جداگانه پردازش می‌کنیم
+   for(int i = 0; i < totalLines; i++)
    {
-      // PLACE_ORDER|symbol|side|lot|tp|sl
+      string cmdLine = lines[i];
+      StringTrimRight(cmdLine);
+      StringTrimLeft(cmdLine);
       
-      printf("Resolve placing order values \n");
-    
-      string symbol = parts[1];
-      string side = parts[2];
-      double lot = StringToDouble(parts[3]);
-      double tp = StringToDouble(parts[4]);
-      double sl = StringToDouble(parts[5]);
-      
-      SendOrderResult(symbol,side,lot,tp,sl);
-   }
-   else if(command == "UPDATE_ORDER")
-   {
-      printf("handling updating order: validating parts");
-      
-      if(ArraySize(parts) < 3)
-      {
-         SendStr("UPDATE_ORDER required ticketsId and newSl value and new TpValue\n");
-         return;
-      }
-      
-      printf("handling updating order: validation parts pass");
-      
-      ulong ticket = StringToInteger(parts[1]);
-      double new_sl = StringToDouble(parts[2]);
-      double new_tp = StringToDouble(parts[3]);
-      
-   
-      if(!PositionSelectByTicket(ticket))
-      {
-         SendStr("Position not found for ticketId: " + IntegerToString(ticket) + "\n");
-         return;
-      }
-      
-      printf("handling updating order: validation ticketId pass");
-      
-      string symbol = PositionGetString(POSITION_SYMBOL);
-      
-      UpdateOrderTpSl(symbol, ticket, new_tp, new_sl);
-      
-   }
+      if(StringLen(cmdLine) == 0) continue; // خط خالی را رد کن
 
+      Print("📩 Processing command: ", cmdLine);
+
+      string parts[];
+      int n = StringSplit(cmdLine, '|', parts);
+      if(n <= 0) continue;
+
+      string command = parts[0];
+      
+      if(command == "GET_CANDLES" && n >= 4)
+      {   
+         string symbol = parts[1];
+         string timeframeString = parts[2];
+         int count = (int)StringToInteger(parts[3]);
+
+         ENUM_TIMEFRAMES timeframe = StringToTimeframe(timeframeString);
+         if(timeframe == PERIOD_CURRENT)
+         {
+            Print("Invalid timeframe: ", timeframeString);
+            continue;
+         }
+
+         string json = GetCandlesJSON(symbol, timeframe, count);
+         if(json != "")
+         {
+            if(SendCandles(json))
+                Print("✅ Sent ", StringLen(json), " bytes JSON for candles");
+            else
+                Print("❌ Failed to send candles");
+         }
+      }
+      else if(command == "PLACE_ORDER")
+      {
+         if(n < 6) { Print("Invalid PLACE_ORDER format"); continue; }
+         
+         string symbol = parts[1];
+         string side = parts[2];
+         double lot = StringToDouble(parts[3]);
+         double tp = StringToDouble(parts[4]);
+         double sl = StringToDouble(parts[5]);
+         
+         SendOrderResult(symbol, side, lot, tp, sl);
+      }
+      else if(command == "UPDATE_ORDER")
+      {
+         if(n < 4)
+         {
+            SendStr("{\"type\":\"UPDATE_ORDER\",\"data\":{\"success\":false,\"comment\":\"Invalid format\"}}\n");
+            continue;
+         }
+         
+         ulong ticket = StringToInteger(parts[1]);
+         double new_sl = StringToDouble(parts[2]);
+         double new_tp = StringToDouble(parts[3]);
+         
+         if(!PositionSelectByTicket(ticket))
+         {
+            SendStr("{\"type\":\"UPDATE_ORDER\",\"data\":{\"success\":false,\"ticket\":" + IntegerToString(ticket) + ",\"comment\":\"Position not found\"}}\n");
+            continue;
+         }
+         
+         string symbol = PositionGetString(POSITION_SYMBOL);
+         UpdateOrderTpSl(symbol, ticket, new_tp, new_sl);
+      }
+      else if(command == "INQUIRY" && n >= 2)
+      {
+         ulong ticket = StringToInteger(parts[1]);
+         HandleInquiry(ticket);
+      }
+      else
+      {
+         Print("⚠️ Unknown command: ", command);
+      }
+   }
 }
 
 ENUM_TIMEFRAMES StringToTimeframe(string tfStr)
@@ -228,7 +237,7 @@ void SendOrderResult(string symbol, string side, double lot, double tp, double s
     req.price        = (side == "BUY") ? ask : bid;
     req.deviation    = 10;
     // req.magic        = 123456;
-    req.type_filling = ORDER_FILLING_FOK;
+    req.type_filling = GetFillingMode(symbol);
     
     if(tp > 0) req.tp = tp;
     if(sl > 0) req.sl = sl;
@@ -251,6 +260,11 @@ void SendOrderResult(string symbol, string side, double lot, double tp, double s
     }
     
     Print("order send result is: " + ok + "\n");
+    Print("OrderSend => ok=", ok,
+      " retcode=", res.retcode,
+      " comment=", res.comment,
+      " ask=", ask, " bid=", bid,
+      " tp=", tp, " sl=", sl);
     
     string envelope = StringFormat(
       "{\"type\":\"ORDER\",\"data\":{\"success\":%s,\"ticket\":%I64d,\"retcode\":%d,\"price\":%.5f,\"tp\":%.5f,\"sl\":%.5f,\"comment\":\"%s\"}} \n",
@@ -295,6 +309,162 @@ void UpdateOrderTpSl(string symbol, ulong ticket, double tp, double sl)
     SendLargeString(envelope);
 }
 
+
+void HandleInquiry(ulong ticket)
+{
+    bool found = false;
+    int status_code = 3000; // 3000 = NOT_FOUND
+    double current_price = 0;
+    double tp = 0;
+    double sl = 0;
+    string comment_info = "Not Found";
+    
+    Print("🔍 Inquiry started for ticket: ", ticket);
+    
+    // ۱. بررسی پوزیشن‌های باز
+    if(PositionSelectByTicket(ticket))
+    {
+        found = true;
+        status_code = 1000; // 1000 = OPEN
+        current_price = PositionGetDouble(POSITION_PRICE_CURRENT);
+        tp = PositionGetDouble(POSITION_TP);
+        sl = PositionGetDouble(POSITION_SL);
+        
+        string symbol = PositionGetString(POSITION_SYMBOL);
+        string type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+        double volume = PositionGetDouble(POSITION_VOLUME);
+        double profit = PositionGetDouble(POSITION_PROFIT);
+        
+        comment_info = StringFormat("STATUS:OPEN | SYM:%s | TYPE:%s | VOL:%.2f | PRF:%.2f", 
+                                    symbol, type, volume, profit);
+                                    
+        Print("✅ Found as OPEN Position");
+    }
+    else
+    {
+        // ۲. بررسی تاریخچه (۹۰ روز اخیر)
+        HistorySelect(TimeCurrent() - 90*24*60*60, TimeCurrent());
+        
+        bool foundInHistory = false;
+        
+        // الف) جستجو در Deals بر اساس POSITION_ID (برای پوزیشن‌های بسته شده)
+        int totalDeals = HistoryDealsTotal();
+        for(int i = totalDeals - 1; i >= 0; i--)
+        {
+            ulong dealTicket = HistoryDealGetTicket(i);
+            if(dealTicket == 0) continue;
+            
+            // چک می‌کنیم آیا این Deal متعلق به Position مورد نظر ما است
+            ulong positionId = (ulong)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+            
+            if(positionId == ticket)
+            {
+                found = true;
+                foundInHistory = true;
+                status_code = 2000; // CLOSED
+                
+                current_price = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+                tp = 0; 
+                sl = 0;
+                
+                string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+                ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+                ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+                
+                string type = "UNKNOWN";
+                if(dealType == DEAL_TYPE_BUY) type = "BUY";
+                else if(dealType == DEAL_TYPE_SELL) type = "SELL";
+                
+                double volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+                double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+                double swap = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+                double commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+                string deal_comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+                
+                // تشخیص جهت معامله (باز شدن یا بسته شدن)
+                string entryInfo = "";
+                if(dealEntry == DEAL_ENTRY_IN) entryInfo = "[OPEN]";
+                else if(dealEntry == DEAL_ENTRY_OUT) entryInfo = "[CLOSE]";
+                else if(dealEntry == DEAL_ENTRY_INOUT) entryInfo = "[REVERSE]";
+                else if(dealEntry == DEAL_ENTRY_OUT_BY) entryInfo = "[CLOSE_BY]";
+
+                comment_info = StringFormat(
+                    "STATUS:CLOSED %s | SYM:%s | TYPE:%s | VOL:%.2f | PRF:%.2f | SWP:%.2f | COM:%.2f | REASON:%s", 
+                    entryInfo, symbol, type, volume, profit, swap, commission, CleanJsonString(deal_comment)
+                );
+                
+                Print("✅ Found in History Deal #", dealTicket, " | Position ID: ", positionId, " | Comment: ", deal_comment);
+                break; // اولین Deal مربوط به این پوزیشن را پیدا کردیم، حلقه را بشکن
+            }
+        }
+        
+        // ب) اگر در Deals پیدا نشد، شاید یک Pending Order بوده که کنسل یا اجرا شده
+        if(!foundInHistory)
+        {
+            bool orderExists = HistoryOrderSelect(ticket);
+            if(orderExists)
+            {
+                found = true;
+                status_code = 2000;
+                
+                current_price = HistoryOrderGetDouble(ticket, ORDER_PRICE_CURRENT);
+                tp = HistoryOrderGetDouble(ticket, ORDER_TP);
+                sl = HistoryOrderGetDouble(ticket, ORDER_SL);
+                
+                string symbol = HistoryOrderGetString(ticket, ORDER_SYMBOL);
+                double volume = HistoryOrderGetDouble(ticket, ORDER_VOLUME_INITIAL);
+                string order_comment = HistoryOrderGetString(ticket, ORDER_COMMENT);
+                
+                ENUM_ORDER_STATE state = (ENUM_ORDER_STATE)HistoryOrderGetInteger(ticket, ORDER_STATE);
+                string statusStr = EnumToString(state);
+                
+                comment_info = StringFormat(
+                    "STATUS:%s | SYM:%s | VOL:%.2f | REASON:%s", 
+                    statusStr, symbol, volume, CleanJsonString(order_comment)
+                );
+                
+                Print("✅ Found in History Order #", ticket, " | State: ", statusStr);
+            }
+        }
+        
+        Print("🔍 Search complete. Found in history: ", foundInHistory, " | Final found status: ", found);
+    }
+
+    // ساخت JSON نهایی
+    string json = StringFormat(
+        "{\"type\":\"INQUIRY\",\"data\":{" +
+        "\"success\":%s," +
+        "\"retcode\":%d," +
+        "\"price\":%.5f," +
+        "\"tp\":%.5f," +
+        "\"sl\":%.5f," +
+        "\"ticket\":%I64u," +
+        "\"comment\":\"%s\"" +
+        "}}\n",
+        found ? "true" : "false",
+        status_code,
+        current_price,
+        tp,
+        sl,
+        ticket,
+        comment_info
+    );
+
+    SendLargeString(json);
+}
+
+
+// تابع کمکی برای جلوگیری از شکستن JSON
+string CleanJsonString(string str)
+{
+    StringReplace(str, "\\", "\\\\");
+    StringReplace(str, "\"", "\\\"");
+    StringReplace(str, "\n", "\\n");
+    StringReplace(str, "\r", "\\r");
+    StringReplace(str, "\t", "\\t");
+    return str;
+}
+
 void SendResult(int socket, bool ok, uint retcode, ulong ticket, string comment)
 {
    string json = StringFormat(
@@ -335,4 +505,14 @@ bool SendLargeString(string s)
       sent += result;
    }
    return true;
+}
+
+ENUM_ORDER_TYPE_FILLING GetFillingMode(string sym)
+{
+    long filling = SymbolInfoInteger(sym, SYMBOL_FILLING_MODE);
+    if((filling & SYMBOL_FILLING_FOK) == SYMBOL_FILLING_FOK)
+        return ORDER_FILLING_FOK;
+    if((filling & SYMBOL_FILLING_IOC) == SYMBOL_FILLING_IOC)
+        return ORDER_FILLING_IOC;
+    return ORDER_FILLING_RETURN;
 }

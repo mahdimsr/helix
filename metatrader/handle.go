@@ -7,12 +7,17 @@ import (
 	"helix/database"
 	"helix/indicators"
 	"helix/models"
+	"helix/notification"
 	"helix/strategy"
 	"io"
 	"log"
 	"net"
+	"os"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 func Handle(conn net.Conn) {
@@ -34,7 +39,14 @@ func Handle(conn net.Conn) {
 	timeframe := "PERIOD_M15"
 	candlesCount := 100
 
+	ticketRepo, err := database.NewFileRepository("tickets.json")
+	if err != nil {
+		log.Fatal("Failed to initialize ticket repository:", err)
+	}
+
 	requestCandles(*client, symbol, timeframe, candlesCount)
+	time.Sleep(50 * time.Millisecond)
+	inquiryOpenOrders(*client, ticketRepo)
 
 	lines := make(chan string)
 	readErr := make(chan error)
@@ -52,9 +64,14 @@ func Handle(conn net.Conn) {
 	for {
 		select {
 		case <-ticker.C:
-			// هر 1 دقیقه درخواست کندل
+
 			fmt.Println("Requesting Candle")
 			requestCandles(*client, symbol, timeframe, candlesCount)
+
+			time.Sleep(50 * time.Millisecond)
+
+			fmt.Println("Inquiry Order")
+			inquiryOpenOrders(*client, ticketRepo)
 		case err := <-readErr:
 			if err == io.EOF {
 				log.Println("connection closed by EA (EOF)")
@@ -123,16 +140,90 @@ func Handle(conn net.Conn) {
 
 				fmt.Println("Order Inserted Id By: \n", insertResult.InsertedID)
 				fmt.Printf("OrderResult parameters are retCode: %d | ticket: %d \n", orderResult.Retcode, orderResult.Ticket)
+
+				err = ticketRepo.SaveTicket(orderResult.Ticket)
+				if err != nil {
+					fmt.Println("Save Ticket error: ", err)
+				}
 			}
 
 			if result.Type == "UPDATE_ORDER" {
 				println("update sl received")
 			}
+
+			if result.Type == "INQUIRY" {
+
+				order := result.fetchDataAsOrder()
+
+				if !order.SUCCESS {
+					log.Println("Order/Ticket not found:", order.Ticket)
+					continue
+				}
+
+				// تفسیر Retcode به عنوان وضعیت
+				switch order.Retcode {
+				case 1000:
+					log.Printf("✅ Position OPEN. Current Price: %.5f | Info: %s", order.Price, order.Comment)
+					// می‌توانید order.Comment را با strings.Split(order.Comment, " | ") پارس کنید اگر نیاز به جزئیات دقیق‌تر دارید
+				case 2000:
+					log.Printf("🔒 Position CLOSED. Close Price: %.5f | Info: %s", order.Price, order.Comment)
+
+					comment := order.ParsComment()
+
+					profitString := comment["PRF"]
+					profit, _ := strconv.ParseFloat(profitString, 64)
+					signal := comment["TYPE"]
+
+					smsApiKey := os.Getenv("KAVENEGAR_API_KEY")
+					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
+					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
+					mobileNumber := os.Getenv("MOBILE")
+					appName := os.Getenv("APP_NAME")
+
+					smsService := notification.NewKavenegarService(smsApiKey)
+					telegramService := notification.NewTelegramService(telegramApiKey)
+
+					var text string
+					var params map[string]string
+
+					if profit > 0 {
+						log.Println("🎯 Closed by Take Profit!")
+						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "TP", profit)
+						params = map[string]string{
+							"token":  symbol,
+							"token2": fmt.Sprintf("%f", profit),
+						}
+					} else {
+						log.Println("🛑 Closed by Stop Loss!")
+						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "SL", profit)
+						params = map[string]string{
+							"token":  symbol,
+							"token2": fmt.Sprintf("%f", profit),
+						}
+					}
+
+					smsService.SendVerificationSMS(mobileNumber, "quantum-close", params)
+					telegramService.SendMessage(telegramChatId, text, "HTML")
+
+					err := ticketRepo.RemoveTicket(order.Ticket)
+					if err != nil {
+						fmt.Println("Remove Ticket error: ", err)
+					}
+
+				case 3000:
+					log.Println("❌ Ticket not found in history or active positions.")
+
+					err := ticketRepo.RemoveTicket(order.Ticket)
+					if err != nil {
+						fmt.Println("Remove Ticket error: ", err)
+					}
+				}
+			}
 		}
 	}
 }
 
-func placeOrder(client MTClient, symbol string, signal string, lot float64, tp float64, sl float64) {
+func placeOrder(client MTClient, symbol string, signal string, lot, price, tp, sl float64) {
 
 	// PLACE_ORDER|symbol|side|lot|tp|sl
 	cmd := fmt.Sprintf("PLACE_ORDER|%s|%s|%.3f|%.3f|%.3f", symbol, signal, lot, tp, sl)
@@ -140,6 +231,22 @@ func placeOrder(client MTClient, symbol string, signal string, lot float64, tp f
 	if err != nil {
 		log.Println("place order failed: ", err)
 	}
+
+	smsApiKey := os.Getenv("KAVENEGAR_API_KEY")
+	telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
+	telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
+	mobileNumber := os.Getenv("MOBILE")
+
+	smsService := notification.NewKavenegarService(smsApiKey)
+	smsService.SendVerificationSMS(mobileNumber, "quantum-order", map[string]string{
+		"token":   symbol,
+		"token3":  fmt.Sprintf("%f", price),
+		"token10": signal,
+	})
+
+	telegramService := notification.NewTelegramService(telegramApiKey)
+	text := fmt.Sprintf("Open \nSide: %s \nSymbol: %s \nexchange: %s\n", signal, symbol, "nova")
+	telegramService.SendMessage(telegramChatId, text, "HTML")
 }
 
 func requestCandles(client MTClient, symbol string, timeframe string, candlesCount int) {
@@ -169,4 +276,24 @@ func updateOrder(client MTClient, ticket int64, stopLoss float64, takeProfit flo
 	}
 
 	return nil
+}
+
+func inquiryOpenOrders(client MTClient, repo *database.FileRepository) {
+
+	allTickets := repo.GetAllTickets()
+
+	if len(allTickets) > 0 {
+
+		for _, ticket := range allTickets {
+
+			cmd := fmt.Sprintf("INQUIRY|%d\n", ticket)
+
+			fmt.Printf("sending CMD is: %s", cmd)
+
+			err := client.SendCommand(cmd)
+			if err != nil {
+				log.Println("Write error:", err)
+			}
+		}
+	}
 }
