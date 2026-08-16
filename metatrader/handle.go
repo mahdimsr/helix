@@ -16,8 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/joho/godotenv"
 )
 
 func Handle(conn net.Conn) {
@@ -104,6 +102,7 @@ func Handle(conn net.Conn) {
 					candles[i], candles[j] = candles[j], candles[i]
 				}
 
+				lastCandle := candles[len(candles)-1]
 				signal, tp, sl := strategy.PulseStrategy(candles)
 
 				fmt.Printf("signal: %s | tp: %.2f | sl: %.2f \n", signal, tp, sl)
@@ -114,7 +113,7 @@ func Handle(conn net.Conn) {
 
 					//amount, _, _ := strategy.CalculateOrderUtils(lastCandle.Close, string(signal))
 					amount := 0.1
-					placeOrder(*client, symbol, string(signal), amount, tp, sl)
+					placeOrder(*client, symbol, string(signal), amount, lastCandle.Close, tp, sl)
 				} else {
 					fmt.Println("signal not detected")
 				}
@@ -174,35 +173,22 @@ func Handle(conn net.Conn) {
 					profit, _ := strconv.ParseFloat(profitString, 64)
 					signal := comment["TYPE"]
 
-					smsApiKey := os.Getenv("KAVENEGAR_API_KEY")
 					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
-					mobileNumber := os.Getenv("MOBILE")
 					appName := os.Getenv("APP_NAME")
 
-					smsService := notification.NewKavenegarService(smsApiKey)
 					telegramService := notification.NewTelegramService(telegramApiKey)
 
 					var text string
-					var params map[string]string
 
 					if profit > 0 {
 						log.Println("🎯 Closed by Take Profit!")
 						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "TP", profit)
-						params = map[string]string{
-							"token":  symbol,
-							"token2": fmt.Sprintf("%f", profit),
-						}
 					} else {
 						log.Println("🛑 Closed by Stop Loss!")
 						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "SL", profit)
-						params = map[string]string{
-							"token":  symbol,
-							"token2": fmt.Sprintf("%f", profit),
-						}
 					}
 
-					smsService.SendVerificationSMS(mobileNumber, "quantum-close", params)
 					telegramService.SendMessage(telegramChatId, text, "HTML")
 
 					err := ticketRepo.RemoveTicket(order.Ticket)
@@ -232,20 +218,12 @@ func placeOrder(client MTClient, symbol string, signal string, lot, price, tp, s
 		log.Println("place order failed: ", err)
 	}
 
-	smsApiKey := os.Getenv("KAVENEGAR_API_KEY")
 	telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 	telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
-	mobileNumber := os.Getenv("MOBILE")
-
-	smsService := notification.NewKavenegarService(smsApiKey)
-	smsService.SendVerificationSMS(mobileNumber, "quantum-order", map[string]string{
-		"token":   symbol,
-		"token3":  fmt.Sprintf("%f", price),
-		"token10": signal,
-	})
+	botName := os.Getenv("APP_NAME")
 
 	telegramService := notification.NewTelegramService(telegramApiKey)
-	text := fmt.Sprintf("Open \nSide: %s \nSymbol: %s \nexchange: %s\n", signal, symbol, "nova")
+	text := fmt.Sprintf("Open \nSide: %s \nSymbol: %s \nexchange: %s\n", signal, symbol, botName)
 	telegramService.SendMessage(telegramChatId, text, "HTML")
 }
 
@@ -286,13 +264,16 @@ func inquiryOpenOrders(client MTClient, repo *database.FileRepository) {
 
 		for _, ticket := range allTickets {
 
-			cmd := fmt.Sprintf("INQUIRY|%d\n", ticket)
+			if ticket > 0 {
 
-			fmt.Printf("sending CMD is: %s", cmd)
+				cmd := fmt.Sprintf("INQUIRY|%d\n", ticket)
 
-			err := client.SendCommand(cmd)
-			if err != nil {
-				log.Println("Write error:", err)
+				fmt.Printf("sending CMD is: %s", cmd)
+
+				err := client.SendCommand(cmd)
+				if err != nil {
+					log.Println("Write error:", err)
+				}
 			}
 		}
 	}
