@@ -1,12 +1,10 @@
 package metatrader
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"helix/database"
 	"helix/indicators"
-	"helix/models"
 	"helix/notification"
 	"helix/strategy"
 	"io"
@@ -32,8 +30,6 @@ func Handle(conn net.Conn) {
 
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-
-	db := database.MongoConnect()
 
 	_ = godotenv.Load()
 	symbol := "XAUUSD"
@@ -124,24 +120,6 @@ func Handle(conn net.Conn) {
 
 			if result.Type == "ORDER" {
 				orderResult := result.fetchDataAsOrder()
-				order := &models.Order{
-					Symbol: symbol,
-					Tp:     orderResult.Tp,
-					Sl:     orderResult.Sl,
-					Ticket: orderResult.Ticket,
-				}
-
-				orderRepo := database.NewOrderRepository(&db)
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				insertResult, err := orderRepo.Create(ctx, order)
-				cancel()
-				if err != nil {
-					fmt.Println("Create Order error: ", err)
-					continue
-				}
-
-				fmt.Println("Order Inserted Id By: \n", insertResult.InsertedID)
-				fmt.Printf("OrderResult parameters are retCode: %d | ticket: %d \n", orderResult.Retcode, orderResult.Ticket)
 
 				err = ticketRepo.SaveTicket(orderResult.Ticket)
 				if err != nil {
