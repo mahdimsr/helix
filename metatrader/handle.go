@@ -288,13 +288,16 @@ func inquiryOpenOrders(client MTClient, repo *database.FileRepository) {
 
 		for _, ticket := range allTickets {
 
-			cmd := fmt.Sprintf("INQUIRY|%d\n", ticket)
+			if ticket > 0 {
 
-			fmt.Printf("sending CMD is: %s", cmd)
+				cmd := fmt.Sprintf("INQUIRY|%d\n", ticket)
 
-			err := client.SendCommand(cmd)
-			if err != nil {
-				log.Println("Write error:", err)
+				fmt.Printf("sending CMD is: %s", cmd)
+
+				err := client.SendCommand(cmd)
+				if err != nil {
+					log.Println("Write error:", err)
+				}
 			}
 		}
 	}
