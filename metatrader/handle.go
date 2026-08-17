@@ -216,6 +216,7 @@ func placeOrder(client MTClient, symbol string, signal string, lot, price, tp, s
 	telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 	telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
 	mobileNumber := os.Getenv("MOBILE")
+	appName := os.Getenv("APP_NAME")
 
 	smsService := notification.NewKavenegarService(smsApiKey)
 	smsService.SendVerificationSMS(mobileNumber, "quantum-order", map[string]string{
@@ -225,7 +226,7 @@ func placeOrder(client MTClient, symbol string, signal string, lot, price, tp, s
 	})
 
 	telegramService := notification.NewTelegramService(telegramApiKey)
-	text := fmt.Sprintf("Open \nSide: %s \nSymbol: %s \nexchange: %s\n", signal, symbol, "nova")
+	text := fmt.Sprintf("Open \nSide: %s \nSymbol: %s \nexchange: %s\n", signal, symbol, appName)
 	telegramService.SendMessage(telegramChatId, text, "HTML")
 }
 
