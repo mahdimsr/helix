@@ -32,14 +32,15 @@ type StrategyResult struct {
 
 // PulseStrategyConfig پارامترهای قابل تنظیم استراتژی
 type PulseStrategyConfig struct {
-	BodyThresholdPercent float64 // حداقل درصد بادی کندل برای سیگنال (مثلاً 0.1)
-	TPBodyRatio          float64 // نسبت TP به بادی کندل (0.25 یعنی ۲۵٪ کندل)
-	SLMultiplier         float64 // ضریب حد ضرر نسبت به فاصله TP (مثلاً 5)
-	AllocationPercent    float64 // درصد سرمایه درگیر در هر معامله (مثلاً 10)
-	Leverage             int     // لوریج (مثلاً 5)
-	FeePercent           float64 // کارمزد هر معامله (مثلاً 0.1)
-	InitialCapital       float64 // سرمایه اولیه (مثلاً 1000)
-	MaxConcurrentTrades  int     // حداکثر معاملات همزمان (مثلاً 10)
+	BodyThresholdPercent    float64 // حداقل درصد بادی کندل برای سیگنال (مثلاً 0.1)
+	BodyThresholdPercentMax float64 // حداقل درصد بادی کندل برای سیگنال (مثلاً 0.1)
+	TPBodyRatio             float64 // نسبت TP به بادی کندل (0.25 یعنی ۲۵٪ کندل)
+	SLMultiplier            float64 // ضریب حد ضرر نسبت به فاصله TP (مثلاً 5)
+	AllocationPercent       float64 // درصد سرمایه درگیر در هر معامله (مثلاً 10)
+	Leverage                int     // لوریج (مثلاً 5)
+	FeePercent              float64 // کارمزد هر معامله (مثلاً 0.1)
+	InitialCapital          float64 // سرمایه اولیه (مثلاً 1000)
+	MaxConcurrentTrades     int     // حداکثر معاملات همزمان (مثلاً 10)
 }
 
 func PulseStrategy(candles []models.Candle, cfg PulseStrategyConfig) StrategyResult {
@@ -60,6 +61,9 @@ func PulseStrategy(candles []models.Candle, cfg PulseStrategyConfig) StrategyRes
 
 		// شرط ۲: بادی کندل بیشتر از آستانه مشخص شده باشد
 		if c.BodyPercentage() < cfg.BodyThresholdPercent {
+			continue
+		}
+		if c.BodyPercentage() > cfg.BodyThresholdPercentMax {
 			continue
 		}
 
