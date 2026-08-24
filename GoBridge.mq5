@@ -319,6 +319,9 @@ void HandleInquiry(ulong ticket)
     double sl = 0;
     string comment_info = "Not Found";
     
+    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+    
     Print("🔍 Inquiry started for ticket: ", ticket);
     
     // ۱. بررسی پوزیشن‌های باز
@@ -439,6 +442,8 @@ void HandleInquiry(ulong ticket)
         "\"tp\":%.5f," +
         "\"sl\":%.5f," +
         "\"ticket\":%I64u," +
+        "\"balance\":%0.2f," +
+        "\"equity\":%0.2f," +
         "\"comment\":\"%s\"" +
         "}}\n",
         found ? "true" : "false",
@@ -447,6 +452,8 @@ void HandleInquiry(ulong ticket)
         tp,
         sl,
         ticket,
+        balance,
+        equity,
         comment_info
     );
 

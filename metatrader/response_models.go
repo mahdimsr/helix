@@ -22,6 +22,8 @@ type OrderResult struct {
 	Tp      float64 `json:"tp"`
 	Sl      float64 `json:"sl"`
 	Ticket  int64   `json:"ticket"`
+	Balance float64 `json:"balance"`
+	Equity  float64 `json:"equity"`
 	Comment string  `json:"comment"`
 }
 
