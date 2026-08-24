@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"helix/models"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -38,14 +39,27 @@ func (r *CandleRepository) CreateMany(ctx context.Context, candles []models.Cand
 	return nil
 }
 
-func (r *CandleRepository) Fetch(ctx context.Context, symbol string, timeframe string, startTime int64, endTime int64) ([]models.Candle, error) {
+func (r *CandleRepository) Fetch(ctx context.Context, symbol string, timeframe string, startTime string, endTime string) ([]models.Candle, error) {
+
+	layout := "2006-01-02"
+
+	startTimeObj, err := time.Parse(layout, startTime)
+	if err != nil {
+		return nil, fmt.Errorf("invalid start date format, expected YYYY-MM-DD: %w", err)
+	}
+
+	endTimeObj, err := time.Parse(layout, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("invalid end date format, expected YYYY-MM-DD: %w", err)
+	}
+
 	// ساخت فیلتر جستجو
 	filter := bson.M{
 		"symbol":    symbol,
 		"timeframe": timeframe,
 		"time": bson.M{
-			"$gte": startTime,
-			"$lte": endTime,
+			"$gte": startTimeObj.UnixMilli(),
+			"$lte": endTimeObj.UnixMilli(),
 		},
 	}
 
