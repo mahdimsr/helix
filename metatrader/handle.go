@@ -168,14 +168,14 @@ func Handle(conn net.Conn) {
 
 					if profit > 0 {
 						log.Println("🎯 Closed by Take Profit!")
-						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "TP", profit)
+						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f\n Balance: %0.2f", signal, symbol, appName, "TP", profit, order.Balance)
 						params = map[string]string{
 							"token":  symbol,
 							"token2": fmt.Sprintf("%f", profit),
 						}
 					} else {
 						log.Println("🛑 Closed by Stop Loss!")
-						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "SL", profit)
+						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f\n Balance: %0.2f", signal, symbol, appName, "SL", profit, order.Balance)
 						params = map[string]string{
 							"token":  symbol,
 							"token2": fmt.Sprintf("%f", profit),
