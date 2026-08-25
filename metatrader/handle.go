@@ -153,7 +153,7 @@ func Handle(conn net.Conn) {
 
 					profitString := comment["PRF"]
 					profit, _ := strconv.ParseFloat(profitString, 64)
-					signal := comment["TYPE"]
+					balance := order.Balance
 
 					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
@@ -165,10 +165,10 @@ func Handle(conn net.Conn) {
 
 					if profit > 0 {
 						log.Println("🎯 Closed by Take Profit!")
-						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "TP", profit)
+						text = fmt.Sprintf("CLOSE \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f\nBalance: %.3f", symbol, appName, "TP", profit, balance)
 					} else {
 						log.Println("🛑 Closed by Stop Loss!")
-						text = fmt.Sprintf("CLOSE \nSide: %s \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f", signal, symbol, appName, "SL", profit)
+						text = fmt.Sprintf("CLOSE \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f\nBalance: %.3f", symbol, appName, "SL", profit, balance)
 					}
 
 					telegramService.SendMessage(telegramChatId, text, "HTML")
