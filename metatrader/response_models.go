@@ -16,15 +16,16 @@ type MTClient struct {
 }
 
 type OrderResult struct {
-	SUCCESS bool    `json:"success"`
-	Retcode int     `json:"retcode"`
-	Price   float64 `json:"price"`
-	Tp      float64 `json:"tp"`
-	Sl      float64 `json:"sl"`
-	Ticket  int64   `json:"ticket"`
-	Balance float64 `json:"balance"`
-	Equity  float64 `json:"equity"`
-	Comment string  `json:"comment"`
+	SUCCESS    bool    `json:"success"`
+	Retcode    int     `json:"retcode"`
+	Price      float64 `json:"price"`
+	Tp         float64 `json:"tp"`
+	Sl         float64 `json:"sl"`
+	Ticket     int64   `json:"ticket"`
+	Balance    float64 `json:"balance"`
+	Equity     float64 `json:"equity"`
+	EntryPrice float64 `json:"entry-price"`
+	Comment    string  `json:"comment"`
 }
 
 type SocketResult struct {

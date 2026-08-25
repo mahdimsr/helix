@@ -9,6 +9,7 @@ import (
 	"helix/strategy"
 	"io"
 	"log"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -30,6 +31,9 @@ func Handle(conn net.Conn) {
 
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
+
+	tickerSec := time.NewTicker(3 * time.Second)
+	defer tickerSec.Stop()
 
 	_ = godotenv.Load()
 
@@ -61,6 +65,10 @@ func Handle(conn net.Conn) {
 
 	for {
 		select {
+		case <-tickerSec.C:
+			if ticketRepo.Count() > 0 {
+				inquiryOpenOrders(*client, ticketRepo)
+			}
 		case <-ticker.C:
 
 			fmt.Println("Requesting Candle")
@@ -145,7 +153,25 @@ func Handle(conn net.Conn) {
 				switch order.Retcode {
 				case 1000:
 					log.Printf("✅ Position OPEN. Current Price: %.5f | Info: %s", order.Price, order.Comment)
-					// می‌توانید order.Comment را با strings.Split(order.Comment, " | ") پارس کنید اگر نیاز به جزئیات دقیق‌تر دارید
+
+					totalDistance := math.Abs(order.Tp - order.EntryPrice)
+
+					if totalDistance > 0 { // جلوگیری از تقسیم بر صفر
+						// محاسبه مسافتی که تا الان طی شده
+						currentDistance := math.Abs(order.Price - order.EntryPrice)
+
+						// محاسبه درصد طی شده
+						percentageCovered := (currentDistance / totalDistance) * 100.0
+
+						log.Printf("📊 Progress: %.1f%% towards TP (Ticket: %d)", percentageCovered, order.Ticket)
+
+						// ✅ اگر ۹۰ درصد یا بیشتر مسیر طی شده بود، ببند
+						if percentageCovered >= 90.0 {
+							log.Printf("🚨 EARLY EXIT TRIGGERED! Reached %.1f%% of TP. Closing ticket %d immediately.", percentageCovered, order.Ticket)
+							closeOrder(*client, order.Ticket)
+						}
+					}
+
 				case 2000:
 					log.Printf("🔒 Position CLOSED. Close Price: %.5f | Info: %s", order.Price, order.Comment)
 
@@ -258,5 +284,17 @@ func inquiryOpenOrders(client MTClient, repo *database.FileRepository) {
 				}
 			}
 		}
+	}
+}
+
+func closeOrder(client MTClient, ticket int64) {
+	// CLOSE_ORDER|ticket
+	cmd := fmt.Sprintf("CLOSE_ORDER|%d\n", ticket)
+
+	err := client.SendCommand(cmd)
+	if err != nil {
+		log.Println("❌ close order command failed: ", err)
+	} else {
+		log.Printf("📤 Sent CLOSE_ORDER command for ticket: %d", ticket)
 	}
 }

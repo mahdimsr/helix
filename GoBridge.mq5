@@ -315,13 +315,14 @@ void HandleInquiry(ulong ticket)
     bool found = false;
     int status_code = 3000; // 3000 = NOT_FOUND
     double current_price = 0;
+    double entry_price = 0;
     double tp = 0;
     double sl = 0;
     string comment_info = "Not Found";
     
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-    
+
     Print("🔍 Inquiry started for ticket: ", ticket);
     
     // ۱. بررسی پوزیشن‌های باز
@@ -332,7 +333,9 @@ void HandleInquiry(ulong ticket)
         current_price = PositionGetDouble(POSITION_PRICE_CURRENT);
         tp = PositionGetDouble(POSITION_TP);
         sl = PositionGetDouble(POSITION_SL);
-        
+        entry_price = PositionGetDouble(POSITION_PRICE_OPEN);
+
+
         string symbol = PositionGetString(POSITION_SYMBOL);
         string type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "BUY" : "SELL";
         double volume = PositionGetDouble(POSITION_VOLUME);
@@ -439,6 +442,7 @@ void HandleInquiry(ulong ticket)
         "\"success\":%s," +
         "\"retcode\":%d," +
         "\"price\":%.5f," +
+        "\"entry\":%.5f," +
         "\"tp\":%.5f," +
         "\"sl\":%.5f," +
         "\"ticket\":%I64u," +
@@ -449,6 +453,7 @@ void HandleInquiry(ulong ticket)
         found ? "true" : "false",
         status_code,
         current_price,
+        entry_price,
         tp,
         sl,
         ticket,
