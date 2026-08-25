@@ -19,17 +19,17 @@ func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, 
 		lastCandle.ReadableTime,
 		lastCandle.IsMarubozu())
 
-	if !lastCandle.IsMarubozu() {
-		return indicators.NoneSignal, 0, 0
-	}
+	//if !lastCandle.IsMarubozu() {
+	//	return indicators.NoneSignal, 0, 0
+	//}
 
 	/*if !isCandleBodyBigger(candles, signalIndex, 100, 60) {
 		return indicators.NoneSignal, 1, 1
 	}*/
 
-	if lastCandle.BodyPercentage() < 0.15 {
-		return indicators.NoneSignal, 2, 2
-	}
+	//if lastCandle.BodyPercentage() < 0.15 {
+	//	return indicators.NoneSignal, 2, 2
+	//}
 
 	//tpPct := dynamicTPPercent(candles, signalIndex, 100, 1)
 	tpPct := 0.5
@@ -40,6 +40,7 @@ func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, 
 		tpPct = 0.4
 	}
 
+	tpPct = 1
 	distPrice := lastCandle.Body() * tpPct
 	entry := lastCandle.Close
 

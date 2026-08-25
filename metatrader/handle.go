@@ -37,7 +37,7 @@ func Handle(conn net.Conn) {
 
 	_ = godotenv.Load()
 
-	symbol := "BTCUSD"
+	symbol := "BTCUSD.ecn"
 	timeframe := "PERIOD_M15"
 	candlesCount := 100
 
@@ -67,6 +67,7 @@ func Handle(conn net.Conn) {
 		select {
 		case <-tickerSec.C:
 			if ticketRepo.Count() > 0 {
+				time.Sleep(50 * time.Millisecond)
 				inquiryOpenOrders(*client, ticketRepo)
 			}
 		case <-ticker.C:
@@ -112,6 +113,7 @@ func Handle(conn net.Conn) {
 
 				lastCandle := candles[len(candles)-1]
 				signal, tp, sl := strategy.PulseStrategy(candles)
+				signal = indicators.BuySignal
 
 				fmt.Printf("signal: %s | tp: %.2f | sl: %.2f \n", signal, tp, sl)
 
@@ -120,7 +122,7 @@ func Handle(conn net.Conn) {
 					fmt.Printf("signal detected: %s", string(signal))
 
 					//amount, _, _ := strategy.CalculateOrderUtils(lastCandle.Close, string(signal))
-					amount := 0.1
+					amount := 0.01
 					placeOrder(*client, symbol, string(signal), amount, lastCandle.Close, tp, sl)
 				} else {
 					fmt.Println("signal not detected")
@@ -157,17 +159,34 @@ func Handle(conn net.Conn) {
 					totalDistance := math.Abs(order.Tp - order.EntryPrice)
 
 					if totalDistance > 0 { // جلوگیری از تقسیم بر صفر
-						// محاسبه مسافتی که تا الان طی شده
-						currentDistance := math.Abs(order.Price - order.EntryPrice)
 
-						// محاسبه درصد طی شده
-						percentageCovered := (currentDistance / totalDistance) * 100.0
+						tpProgress := calculateTPProgress(order.EntryPrice, order.Tp, order.Price)
 
-						log.Printf("📊 Progress: %.1f%% towards TP (Ticket: %d)", percentageCovered, order.Ticket)
+						log.Printf("📊 Progress: %.2f towards TP (Ticket: %d)", tpProgress, order.Ticket)
+
+						priceAt20Percent := order.EntryPrice + (order.Tp-order.EntryPrice)*0.20
+
+						// اگر بین 70 تا 90 درصد طی شده بود tp و sl رو تکون بده
+						if tpProgress >= 70.0 && tpProgress < 80 {
+							log.Printf("🛑 SL updated to price: %.2f", priceAt20Percent)
+
+							shiftAmount := math.Abs(priceAt20Percent - order.EntryPrice)
+							newTp := order.Tp + (order.Tp-order.EntryPrice)*0.20
+							newSl := order.Sl + shiftAmount
+
+							if math.Abs(order.Tp-newTp) > 50 {
+
+								log.Printf("📊 Progress: %.2f%% | Shift Amount: %.5f | New TP Target: %.5f (Ticket: %d)", tpProgress, shiftAmount, newTp, order.Ticket)
+
+								err = updateOrder(*client, order.Ticket, newSl, newTp)
+
+								fmt.Printf("Update TP/SL error: %s", err)
+							}
+						}
 
 						// ✅ اگر ۹۰ درصد یا بیشتر مسیر طی شده بود، ببند
-						if percentageCovered >= 90.0 {
-							log.Printf("🚨 EARLY EXIT TRIGGERED! Reached %.1f%% of TP. Closing ticket %d immediately.", percentageCovered, order.Ticket)
+						if tpProgress >= 90.0 {
+							log.Printf("🚨 EARLY EXIT TRIGGERED! Reached %.1f%% of TP. Closing ticket %d immediately.", tpProgress, order.Ticket)
 							closeOrder(*client, order.Ticket)
 						}
 					}
@@ -297,4 +316,16 @@ func closeOrder(client MTClient, ticket int64) {
 	} else {
 		log.Printf("📤 Sent CLOSE_ORDER command for ticket: %d", ticket)
 	}
+}
+
+func calculateTPProgress(orderPrice, tpPrice, currentPrice float64) float64 {
+
+	log.Printf("Tp: %.2f Entry: %.2f Current: %.2f", tpPrice, orderPrice, currentPrice)
+
+	totalDistance := math.Abs(tpPrice - orderPrice)
+
+	coveredDistance := currentPrice - orderPrice
+	progress := (coveredDistance / totalDistance) * 100
+
+	return progress
 }

@@ -168,6 +168,11 @@ void HandleCommands(int socket)
          ulong ticket = StringToInteger(parts[1]);
          HandleInquiry(ticket);
       }
+      else if(command == "CLOSE_ORDER" && n >= 2)
+      {
+         ulong ticket = StringToInteger(parts[1]);
+         ClosePositionByTicket(ticket);
+      }
       else
       {
          Print("⚠️ Unknown command: ", command);
@@ -463,6 +468,66 @@ void HandleInquiry(ulong ticket)
     );
 
     SendLargeString(json);
+}
+
+void ClosePositionByTicket(ulong ticket)
+{
+    if(!PositionSelectByTicket(ticket))
+    {
+        string errorMsg = StringFormat(
+            "{\"type\":\"CLOSE_ORDER\",\"data\":{\"success\":false,\"ticket\":%I64u,\"comment\":\"Position not found\"}}\n",
+            ticket
+        );
+        SendLargeString(errorMsg);
+        return;
+    }
+
+    MqlTradeRequest req = {};
+    MqlTradeResult res = {};
+    
+    req.action = TRADE_ACTION_DEAL;
+    req.position = ticket;  // ✅ مهم: تعیین پوزیشن برای بستن
+    req.symbol = PositionGetString(POSITION_SYMBOL);
+    req.volume = PositionGetDouble(POSITION_VOLUME);
+    
+    // ✅ جهت مخالف برای بستن
+    ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+    req.type = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+    
+    // ✅ دریافت قیمت Market (Ask برای Sell، Bid برای Buy)
+    req.price = (req.type == ORDER_TYPE_SELL) ? 
+                SymbolInfoDouble(req.symbol, SYMBOL_BID) : 
+                SymbolInfoDouble(req.symbol, SYMBOL_ASK);
+    
+    // ✅ Hard Close: Deviation بسیار بالا (معادل GUI)
+    // مقدار 1000000 یعنی تقریباً هر قیمتی پذیرفته می‌شود
+    req.deviation = 1000000;
+    
+    // ✅ تعیین Filling Mode مناسب برای بروکر
+    req.type_filling = GetFillingMode(req.symbol);
+    
+    // ✅ Magic Number و Comment اختیاری
+    req.magic = 0;
+    req.comment = "Hard Close by Bot";
+
+    // ✅ ارسال دستور
+    bool ok = OrderSend(req, res);
+    
+    Print("🔒 Hard Close Result => ok=", ok, 
+          " retcode=", res.retcode, 
+          " price=", res.price, 
+          " comment=", res.comment);
+
+    string envelope = StringFormat(
+        "{\"type\":\"CLOSE_ORDER\",\"data\":{\"success\":%s,\"ticket\":%I64u,\"retcode\":%d,\"price\":%.5f,\"comment\":\"%s\"}}\n",
+        ok ? "true" : "false",
+        ticket,
+        res.retcode,
+        res.price,
+        CleanJsonString(res.comment)
+    );
+
+    SendLargeString(envelope);
 }
 
 
