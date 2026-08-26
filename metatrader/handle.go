@@ -113,7 +113,6 @@ func Handle(conn net.Conn) {
 
 				lastCandle := candles[len(candles)-1]
 				signal, tp, sl := strategy.PulseStrategy(candles)
-				signal = indicators.BuySignal
 
 				fmt.Printf("signal: %s | tp: %.2f | sl: %.2f \n", signal, tp, sl)
 
