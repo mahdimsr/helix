@@ -121,7 +121,7 @@ func Handle(conn net.Conn) {
 					fmt.Printf("signal detected: %s", string(signal))
 
 					//amount, _, _ := strategy.CalculateOrderUtils(lastCandle.Close, string(signal))
-					amount := 0.01
+					amount := 0.2
 					placeOrder(*client, symbol, string(signal), amount, lastCandle.Close, tp, sl)
 				} else {
 					fmt.Println("signal not detected")
@@ -166,7 +166,7 @@ func Handle(conn net.Conn) {
 						priceAt20Percent := order.EntryPrice + (order.Tp-order.EntryPrice)*0.20
 
 						// اگر بین 70 تا 90 درصد طی شده بود tp و sl رو تکون بده
-						if tpProgress >= 70.0 && tpProgress < 80 {
+						if (tpProgress >= 70.0 && tpProgress < 80) || (tpProgress >= 50.0 && tpProgress < 55) {
 							log.Printf("🛑 SL updated to price: %.2f", priceAt20Percent)
 
 							shiftAmount := math.Abs(priceAt20Percent - order.EntryPrice)
