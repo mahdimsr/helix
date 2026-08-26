@@ -9,6 +9,7 @@ import (
 	"helix/strategy"
 	"io"
 	"log"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -28,8 +29,11 @@ func Handle(conn net.Conn) {
 	}(conn)
 	client := NewMT5Client(conn)
 
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
+
+	tickerSec := time.NewTicker(3 * time.Second)
+	defer tickerSec.Stop()
 
 	_ = godotenv.Load()
 	symbol := "XAUUSD"
@@ -62,6 +66,11 @@ func Handle(conn net.Conn) {
 
 	for {
 		select {
+		case <-tickerSec.C:
+			if ticketRepo.Count() > 0 {
+				time.Sleep(50 * time.Millisecond)
+				inquiryOpenOrders(*client, ticketRepo)
+			}
 		case <-ticker.C:
 
 			fmt.Println("Requesting Candle")
@@ -144,7 +153,42 @@ func Handle(conn net.Conn) {
 				switch order.Retcode {
 				case 1000:
 					log.Printf("✅ Position OPEN. Current Price: %.5f | Info: %s", order.Price, order.Comment)
-					// می‌توانید order.Comment را با strings.Split(order.Comment, " | ") پارس کنید اگر نیاز به جزئیات دقیق‌تر دارید
+
+					totalDistance := math.Abs(order.Tp - order.EntryPrice)
+
+					if totalDistance > 0 { // جلوگیری از تقسیم بر صفر
+
+						tpProgress := calculateTPProgress(order.EntryPrice, order.Tp, order.Price)
+
+						log.Printf("📊 Progress: %.2f towards TP (Ticket: %d)", tpProgress, order.Ticket)
+
+						priceAt20Percent := order.EntryPrice + (order.Tp-order.EntryPrice)*0.20
+
+						// اگر بین 70 تا 90 درصد طی شده بود tp و sl رو تکون بده
+						if (tpProgress >= 70.0 && tpProgress < 80) || (tpProgress >= 50.0 && tpProgress < 55) {
+							log.Printf("🛑 SL updated to price: %.2f", priceAt20Percent)
+
+							shiftAmount := math.Abs(priceAt20Percent - order.EntryPrice)
+							newTp := order.Tp + (order.Tp-order.EntryPrice)*0.20
+							newSl := order.Sl + shiftAmount
+
+							if math.Abs(order.Tp-newTp) > 50 {
+
+								log.Printf("📊 Progress: %.2f%% | Shift Amount: %.5f | New TP Target: %.5f (Ticket: %d)", tpProgress, shiftAmount, newTp, order.Ticket)
+
+								err = updateOrder(*client, order.Ticket, newSl, newTp)
+
+								fmt.Printf("Update TP/SL error: %s", err)
+							}
+						}
+
+						// ✅ اگر ۹۰ درصد یا بیشتر مسیر طی شده بود، ببند
+						if tpProgress >= 90.0 {
+							log.Printf("🚨 EARLY EXIT TRIGGERED! Reached %.1f%% of TP. Closing ticket %d immediately.", tpProgress, order.Ticket)
+							closeOrder(*client, order.Ticket)
+						}
+					}
+
 				case 2000:
 					log.Printf("🔒 Position CLOSED. Close Price: %.5f | Info: %s", order.Price, order.Comment)
 
@@ -152,7 +196,7 @@ func Handle(conn net.Conn) {
 
 					profitString := comment["PRF"]
 					profit, _ := strconv.ParseFloat(profitString, 64)
-					signal := comment["TYPE"]
+					balance := order.Balance
 
 					smsApiKey := os.Getenv("KAVENEGAR_API_KEY")
 					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
@@ -280,4 +324,28 @@ func inquiryOpenOrders(client MTClient, repo *database.FileRepository) {
 			}
 		}
 	}
+}
+
+func closeOrder(client MTClient, ticket int64) {
+	// CLOSE_ORDER|ticket
+	cmd := fmt.Sprintf("CLOSE_ORDER|%d\n", ticket)
+
+	err := client.SendCommand(cmd)
+	if err != nil {
+		log.Println("❌ close order command failed: ", err)
+	} else {
+		log.Printf("📤 Sent CLOSE_ORDER command for ticket: %d", ticket)
+	}
+}
+
+func calculateTPProgress(orderPrice, tpPrice, currentPrice float64) float64 {
+
+	log.Printf("Tp: %.2f Entry: %.2f Current: %.2f", tpPrice, orderPrice, currentPrice)
+
+	totalDistance := math.Abs(tpPrice - orderPrice)
+
+	coveredDistance := currentPrice - orderPrice
+	progress := (coveredDistance / totalDistance) * 100
+
+	return progress
 }

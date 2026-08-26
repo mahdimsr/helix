@@ -168,6 +168,11 @@ void HandleCommands(int socket)
          ulong ticket = StringToInteger(parts[1]);
          HandleInquiry(ticket);
       }
+      else if(command == "CLOSE_ORDER" && n >= 2)
+      {
+         ulong ticket = StringToInteger(parts[1]);
+         ClosePositionByTicket(ticket);
+      }
       else
       {
          Print("⚠️ Unknown command: ", command);
@@ -315,13 +320,14 @@ void HandleInquiry(ulong ticket)
     bool found = false;
     int status_code = 3000; // 3000 = NOT_FOUND
     double current_price = 0;
+    double entry_price = 0;
     double tp = 0;
     double sl = 0;
     string comment_info = "Not Found";
     
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-    
+
     Print("🔍 Inquiry started for ticket: ", ticket);
     
     // ۱. بررسی پوزیشن‌های باز
@@ -332,7 +338,9 @@ void HandleInquiry(ulong ticket)
         current_price = PositionGetDouble(POSITION_PRICE_CURRENT);
         tp = PositionGetDouble(POSITION_TP);
         sl = PositionGetDouble(POSITION_SL);
-        
+        entry_price = PositionGetDouble(POSITION_PRICE_OPEN);
+
+
         string symbol = PositionGetString(POSITION_SYMBOL);
         string type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "BUY" : "SELL";
         double volume = PositionGetDouble(POSITION_VOLUME);
@@ -439,6 +447,7 @@ void HandleInquiry(ulong ticket)
         "\"success\":%s," +
         "\"retcode\":%d," +
         "\"price\":%.5f," +
+        "\"entry\":%.5f," +
         "\"tp\":%.5f," +
         "\"sl\":%.5f," +
         "\"ticket\":%I64u," +
@@ -449,6 +458,7 @@ void HandleInquiry(ulong ticket)
         found ? "true" : "false",
         status_code,
         current_price,
+        entry_price,
         tp,
         sl,
         ticket,
@@ -458,6 +468,66 @@ void HandleInquiry(ulong ticket)
     );
 
     SendLargeString(json);
+}
+
+void ClosePositionByTicket(ulong ticket)
+{
+    if(!PositionSelectByTicket(ticket))
+    {
+        string errorMsg = StringFormat(
+            "{\"type\":\"CLOSE_ORDER\",\"data\":{\"success\":false,\"ticket\":%I64u,\"comment\":\"Position not found\"}}\n",
+            ticket
+        );
+        SendLargeString(errorMsg);
+        return;
+    }
+
+    MqlTradeRequest req = {};
+    MqlTradeResult res = {};
+    
+    req.action = TRADE_ACTION_DEAL;
+    req.position = ticket;  // ✅ مهم: تعیین پوزیشن برای بستن
+    req.symbol = PositionGetString(POSITION_SYMBOL);
+    req.volume = PositionGetDouble(POSITION_VOLUME);
+    
+    // ✅ جهت مخالف برای بستن
+    ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+    req.type = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+    
+    // ✅ دریافت قیمت Market (Ask برای Sell، Bid برای Buy)
+    req.price = (req.type == ORDER_TYPE_SELL) ? 
+                SymbolInfoDouble(req.symbol, SYMBOL_BID) : 
+                SymbolInfoDouble(req.symbol, SYMBOL_ASK);
+    
+    // ✅ Hard Close: Deviation بسیار بالا (معادل GUI)
+    // مقدار 1000000 یعنی تقریباً هر قیمتی پذیرفته می‌شود
+    req.deviation = 1000000;
+    
+    // ✅ تعیین Filling Mode مناسب برای بروکر
+    req.type_filling = GetFillingMode(req.symbol);
+    
+    // ✅ Magic Number و Comment اختیاری
+    req.magic = 0;
+    req.comment = "Hard Close by Bot";
+
+    // ✅ ارسال دستور
+    bool ok = OrderSend(req, res);
+    
+    Print("🔒 Hard Close Result => ok=", ok, 
+          " retcode=", res.retcode, 
+          " price=", res.price, 
+          " comment=", res.comment);
+
+    string envelope = StringFormat(
+        "{\"type\":\"CLOSE_ORDER\",\"data\":{\"success\":%s,\"ticket\":%I64u,\"retcode\":%d,\"price\":%.5f,\"comment\":\"%s\"}}\n",
+        ok ? "true" : "false",
+        ticket,
+        res.retcode,
+        res.price,
+        CleanJsonString(res.comment)
+    );
+
+    SendLargeString(envelope);
 }
 
 
