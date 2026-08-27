@@ -88,11 +88,7 @@ func (candle *Candle) IsMarubozu() bool {
 		return true
 	}
 
-	if candle.Body() < candle.Shadow() {
-		return false
-	}
-
-	return candle.Body() >= candle.Shadow()*2
+	return candle.Body() > candle.Shadow()
 }
 
 func (candle *Candle) IsGreen() bool {
