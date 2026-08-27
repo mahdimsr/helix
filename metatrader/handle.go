@@ -162,10 +162,10 @@ func Handle(conn net.Conn) {
 
 						log.Printf("📊 Progress: %.2f towards TP (Ticket: %d)", tpProgress, order.Ticket)
 
-						priceAt20Percent := order.EntryPrice + (order.Tp-order.EntryPrice)*0.20
+						//priceAt20Percent := order.EntryPrice + (order.Tp-order.EntryPrice)*0.20
 
 						// اگر بین 70 تا 90 درصد طی شده بود tp و sl رو تکون بده
-						if (tpProgress >= 70.0 && tpProgress < 80) || (tpProgress >= 50.0 && tpProgress < 55) {
+						/*if (tpProgress >= 70.0 && tpProgress < 80) || (tpProgress >= 50.0 && tpProgress < 55) {
 							log.Printf("🛑 SL updated to price: %.2f", priceAt20Percent)
 
 							shiftAmount := math.Abs(priceAt20Percent - order.EntryPrice)
@@ -180,7 +180,7 @@ func Handle(conn net.Conn) {
 
 								fmt.Printf("Update TP/SL error: %s", err)
 							}
-						}
+						}*/
 
 						// ✅ اگر ۹۰ درصد یا بیشتر مسیر طی شده بود، ببند
 						if tpProgress >= 90.0 {
@@ -343,8 +343,14 @@ func calculateTPProgress(orderPrice, tpPrice, currentPrice float64) float64 {
 	log.Printf("Tp: %.2f Entry: %.2f Current: %.2f", tpPrice, orderPrice, currentPrice)
 
 	totalDistance := math.Abs(tpPrice - orderPrice)
+	direction := 0.0
+	if tpPrice > orderPrice {
+		direction = 1
+	} else {
+		direction = -1
+	}
 
-	coveredDistance := currentPrice - orderPrice
+	coveredDistance := (currentPrice - orderPrice) * direction
 	progress := (coveredDistance / totalDistance) * 100
 
 	return progress
