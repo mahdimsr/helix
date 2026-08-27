@@ -19,11 +19,11 @@ func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, 
 		lastCandle.ReadableTime,
 		lastCandle.IsMarubozu())
 
-	if lastCandle.BodyPercentage() > 0.2 {
+	if lastCandle.BodyPercentage() < 0.2 {
 		return indicators.NoneSignal, 2, 2
 	}
 
-	if lastCandle.BodyPercentage() < 1 {
+	if lastCandle.BodyPercentage() > 1 {
 		return indicators.NoneSignal, 2, 2
 	}
 
