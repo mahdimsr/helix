@@ -206,15 +206,25 @@ func Handle(conn net.Conn) {
 
 					telegramService := notification.NewTelegramService(telegramApiKey)
 
-					var text string
+					var orderResult string
 
 					if profit > 0 {
 						log.Println("🎯 Closed by Take Profit!")
-						text = fmt.Sprintf("CLOSE \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f\nBalance: %.3f", symbol, appName, "TP", profit, balance)
+						orderResult = "TP"
 					} else {
 						log.Println("🛑 Closed by Stop Loss!")
-						text = fmt.Sprintf("CLOSE \nSymbol: %s \nexchange: %s\nTarget: %s\nGain(dollar): %.3f\nBalance: %.3f", symbol, appName, "SL", profit, balance)
+						orderResult = "SL"
 					}
+
+					text := fmt.Sprintf(
+						"<b>Close</b> \n"+
+							"🔣 Symbol: %s \n"+
+							"📱 App: %s\n"+
+							"🎯 Target: %s\n"+
+							"💵 Gain(dollar): %.3f\n"+
+							"💳 Balance: %0.2f"+
+							"⏲️ Time: %s\n",
+						symbol, appName, orderResult, profit, balance, time.Now().Format("2006-01-02 15:04"))
 
 					telegramService.SendMessage(telegramChatId, text, "HTML")
 
@@ -247,10 +257,27 @@ func placeOrder(client MTClient, symbol string, signal string, lot, price, tp, s
 
 	telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 	telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
-	botName := os.Getenv("APP_NAME")
+	appName := os.Getenv("APP_NAME")
+
+	var sideDisplay string
+	switch signal {
+	case "BUY":
+		sideDisplay = "⬆️ BUY"
+	case "SELL":
+		sideDisplay = "⬇️ SELL"
+	}
 
 	telegramService := notification.NewTelegramService(telegramApiKey)
-	text := fmt.Sprintf("Open \nSide: %s \nSymbol: %s \nexchange: %s\n", signal, symbol, botName)
+	text := fmt.Sprintf(""+
+		"📖 <b>Open</b> \n"+
+		"%s \n"+
+		"🔣 Symbol: %s \n"+
+		"📱 App: %s\n"+
+		"💲 Price: %f\n"+
+		"🟢 Tp: %f\n"+
+		"🔴 Sl: %f\n"+
+		"⏲️ Time: %s\n",
+		sideDisplay, symbol, appName, price, tp, sl, time.Now().Format("2006-01-02 15:04"))
 	telegramService.SendMessage(telegramChatId, text, "HTML")
 }
 
