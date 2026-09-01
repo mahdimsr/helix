@@ -153,15 +153,16 @@ func GenerateShortChartURL(results *strategy.BacktestOutput) (string, error) {
 	return result.URL, nil
 }
 
-func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) error {
+func GenerateInteractiveChart(results *strategy.BacktestOutput, filename string) error {
 	var points []ChartPoint
 	for i, tp := range results.TPValues {
 		for j, sl := range results.SLValues {
 			points = append(points, ChartPoint{
-				X:  results.GainMatrix[i][j],
-				Y:  results.CountMatrix[i][j],
-				TP: tp,
-				SL: sl,
+				X:       results.GainMatrix[i][j],
+				Y:       results.CountMatrix[i][j],
+				TP:      tp,
+				SL:      sl,
+				WinRate: results.WinRateMatrix[i][j], // 🆕
 			})
 		}
 	}
@@ -171,7 +172,6 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
 		return err
 	}
 
-	// قالب HTML با قابلیت Tooltip کامل و طراحی زیبا
 	htmlTemplate := `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -194,18 +194,8 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
             padding: 30px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         }
-        h1 {
-            text-align: center;
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 28px;
-        }
-        .subtitle {
-            text-align: center;
-            color: #666;
-            margin-bottom: 25px;
-            font-size: 14px;
-        }
+        h1 { text-align: center; color: #333; margin-bottom: 10px; font-size: 28px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 25px; font-size: 14px; }
         .stats {
             display: flex;
             justify-content: space-around;
@@ -214,23 +204,10 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
             background: #f8f9fa;
             border-radius: 10px;
         }
-        .stat-item {
-            text-align: center;
-        }
-        .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #667eea;
-        }
-        .stat-label {
-            font-size: 12px;
-            color: #666;
-            text-transform: uppercase;
-        }
-        .chart-wrapper {
-            position: relative;
-            height: 600px;
-        }
+        .stat-item { text-align: center; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #667eea; }
+        .stat-label { font-size: 12px; color: #666; text-transform: uppercase; }
+        .chart-wrapper { position: relative; height: 600px; }
         .legend-info {
             margin-top: 20px;
             padding: 15px;
@@ -260,6 +237,10 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
                 <div class="stat-value" id="bestCombo">-</div>
                 <div class="stat-label">Best TP/SL</div>
             </div>
+            <div class="stat-item">
+                <div class="stat-value" id="bestWinRate">0%%</div>
+                <div class="stat-label">Best Win Rate</div>
+            </div>
         </div>
 
         <div class="chart-wrapper">
@@ -267,7 +248,7 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
         </div>
 
         <div class="legend-info">
-            💡 <strong>راهنما:</strong> موس را روی هر نقطه ببرید تا مقادیر TP، SL، سود و تعداد تریدها را ببینید.
+            💡 <strong>راهنما:</strong> موس را روی هر نقطه ببرید تا مقادیر TP، SL، سود، تعداد ترید و Win Rate را ببینید.
             نقاط در ناحیه <strong>بالا-راست</strong> بهترین عملکرد را دارند (سود بالا + تعداد ترید زیاد).
         </div>
     </div>
@@ -278,10 +259,17 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
         // محاسبه آمار
         let bestGain = -Infinity;
         let bestPoint = null;
+        let bestWinRate = 0;
+        let bestWinRatePoint = null;
+        
         chartData.forEach(pt => {
             if (pt.x > bestGain) {
                 bestGain = pt.x;
                 bestPoint = pt;
+            }
+            if (pt.winRate > bestWinRate) {
+                bestWinRate = pt.winRate;
+                bestWinRatePoint = pt;
             }
         });
 
@@ -290,14 +278,16 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
         if (bestPoint) {
             document.getElementById('bestCombo').textContent = 'TP:' + bestPoint.tp + '/SL:' + bestPoint.sl;
         }
+        document.getElementById('bestWinRate').textContent = bestWinRate.toFixed(1) + '%%';
 
-        // رنگ‌بندی نقاط بر اساس سود (سبز برای سود، قرمز برای ضرر)
+        // رنگ‌بندی نقاط بر اساس Win Rate (سبز برای بالا، قرمز برای پایین)
         const colors = chartData.map(pt => {
-            if (pt.x > 0) {
-                const intensity = Math.min(pt.x / bestGain, 1);
+            if (pt.winRate >= 50) {
+                const intensity = Math.min((pt.winRate - 50) / 50, 1);
                 return 'rgba(' + Math.round(34 - intensity*20) + ', ' + Math.round(139 + intensity*50) + ', ' + Math.round(34 + intensity*50) + ', 0.7)';
             } else {
-                return 'rgba(220, 53, 69, 0.6)';
+                const intensity = Math.min((50 - pt.winRate) / 50, 1);
+                return 'rgba(' + Math.round(220) + ', ' + Math.round(53 + (1-intensity)*50) + ', ' + Math.round(69) + ', 0.7)';
             }
         });
 
@@ -309,7 +299,7 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
                     label: 'TP/SL Combinations',
                     data: chartData,
                     backgroundColor: colors,
-                    borderColor: colors.map(c => c.replace('0.7', '1').replace('0.6', '1')),
+                    borderColor: colors.map(c => c.replace('0.7', '1')),
                     borderWidth: 1,
                     pointRadius: 7,
                     pointHoverRadius: 12,
@@ -343,12 +333,15 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
                                     '💰 TP: $' + pt.tp + '  |  SL: $' + pt.sl,
                                     '📈 Net Gain: $' + pt.x.toFixed(2),
                                     '🔢 Trades: ' + pt.y,
+                                    '🎯 Win Rate: ' + pt.winRate.toFixed(1) + '%%',
                                     '📊 R/R Ratio: ' + (pt.tp / pt.sl).toFixed(2)
                                 ];
                             },
                             afterLabel: function(context) {
                                 const pt = context.raw;
-                                if (pt.x > 0) {
+                                if (pt.x > 0 && pt.winRate >= 50) {
+                                    return '✅ Profitable & High Win Rate';
+                                } else if (pt.x > 0) {
                                     return '✅ Profitable';
                                 }
                                 return '❌ Loss';
@@ -390,7 +383,7 @@ func GenerateInteractiveChart(results strategy.BacktestOutput, filename string) 
 		return err
 	}
 
-	fmt.Printf("✅ فایل نمودار تعاملی در '%s' ذخیره شد.\n", filename)
+	fmt.Printf("✅ فایل نمودار تعاملی با Win Rate در '%s' ذخیره شد.\n", filename)
 	fmt.Println("💡 کافیست روی فایل دابل‌کلیک کنید تا در مرورگر باز شود.")
 	return nil
 }

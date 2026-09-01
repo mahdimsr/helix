@@ -37,21 +37,21 @@ func main() {
 	nexCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-08-24", "2026-08-29")
 	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "5m", "2026-08-24", "2026-08-29")
 
-	tpDollars := makeRange(1.0, 50.0, 1.0)
-	slDollars := makeRange(1.0, 25.0, 1.0)
+	tpDollars := makeRange(1.0, 100.0, 1.0)
+	slDollars := makeRange(1.0, 50.0, 1.0)
 
 	results := strategy.RunBacktest(
 		nexCandles,
 		lowCandles,
-		200.0, // سرمایه اولیه 1000 دلار
-		10.0,  // لوریج 10
+		1000.0, // سرمایه اولیه 1000 دلار
+		100.0,  // لوریج 10
 		tpDollars,
 		slDollars,
 	)
 
 	//strategy.PrintCombinedMatrix(results)
 
-	err := chart.GenerateInteractiveChart(*results, "chart.html")
+	err := chart.GenerateInteractiveChart(results, "chart.html")
 	chartURL, err := chart.GenerateShortChartURL(results)
 	if err != nil {
 		fmt.Println("خطا در تولید نمودار:", err)

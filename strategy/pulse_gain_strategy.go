@@ -8,11 +8,13 @@ import (
 )
 
 type BacktestOutput struct {
-	TPValues    []float64
-	SLValues    []float64
-	GainMatrix  [][]float64               // ماتریس سود خالص برای رسم نمودار
-	CountMatrix [][]int                   // ماتریس تعداد تریدها برای رسم نمودار
-	TradeLogs   map[string][]models.Trade // دیکشنری برای دسترسی به لیست تریدهای هر حالت
+	TPValues         []float64
+	SLValues         []float64
+	GainMatrix       [][]float64               // ماتریس سود خالص برای رسم نمودار
+	CountMatrix      [][]int                   // ماتریس تعداد تریدها برای رسم نمودار
+	TradeLogs        map[string][]models.Trade // دیکشنری برای دسترسی به لیست تریدهای هر حالت
+	WinRateMatrix    [][]float64
+	LiquidatedMatrix [][]bool
 }
 
 func RunBacktest(
@@ -20,37 +22,42 @@ func RunBacktest(
 	ltfCandles []models.Candle,
 	initialCapital float64,
 	leverage float64,
-	tpValues []float64, // مقادیر دلاری TP
-	slValues []float64, // مقادیر دلاری SL
+	tpValues []float64,
+	slValues []float64,
 ) *BacktestOutput {
 
-	// مرتب‌سازی کندل‌ها بر اساس زمان (برای اطمینان از صحت Binary Search)
 	sort.Slice(htfCandles, func(i, j int) bool { return htfCandles[i].Time < htfCandles[j].Time })
 	sort.Slice(ltfCandles, func(i, j int) bool { return ltfCandles[i].Time < ltfCandles[j].Time })
 
 	output := &BacktestOutput{
-		TPValues:    tpValues,
-		SLValues:    slValues,
-		GainMatrix:  make([][]float64, len(tpValues)),
-		CountMatrix: make([][]int, len(tpValues)),
-		TradeLogs:   make(map[string][]models.Trade),
+		TPValues:      tpValues,
+		SLValues:      slValues,
+		GainMatrix:    make([][]float64, len(tpValues)),
+		CountMatrix:   make([][]int, len(tpValues)),
+		WinRateMatrix: make([][]float64, len(tpValues)), // 🆕
+		TradeLogs:     make(map[string][]models.Trade),
 	}
 
-	// مقداردهی اولیه ماتریس‌ها
 	for i := 0; i < len(tpValues); i++ {
 		output.GainMatrix[i] = make([]float64, len(slValues))
 		output.CountMatrix[i] = make([]int, len(slValues))
+		output.WinRateMatrix[i] = make([]float64, len(slValues)) // 🆕
 	}
 
-	// حلقه‌های تو در تو برای ترکیب‌های مختلف TP و SL
 	for i, tpUSD := range tpValues {
 		for j, slUSD := range slValues {
-			trades, netGain := runSingleBacktest(htfCandles, ltfCandles, initialCapital, leverage, tpUSD, slUSD)
+			trades, netGain, winCount := runSingleBacktest(htfCandles, ltfCandles, initialCapital, leverage, tpUSD, slUSD)
 
 			output.GainMatrix[i][j] = netGain
 			output.CountMatrix[i][j] = len(trades)
 
-			// ساخت کلید برای دسترسی راحت به لاگ تریدها
+			// 🆕 محاسبه Win Rate
+			if len(trades) > 0 {
+				output.WinRateMatrix[i][j] = (float64(winCount) / float64(len(trades))) * 100
+			} else {
+				output.WinRateMatrix[i][j] = 0
+			}
+
 			key := fmt.Sprintf("TP_%v_SL_%v", tpUSD, slUSD)
 			output.TradeLogs[key] = trades
 		}
@@ -67,28 +74,28 @@ func runSingleBacktest(
 	leverage float64,
 	tpUSD float64,
 	slUSD float64,
-) ([]models.Trade, float64) {
+) ([]models.Trade, float64, int) { // 🆕 مقدار برگشتی سوم: تعداد تریدهای برنده
 
 	var trades []models.Trade
 	currentCapital := initialCapital
+	winCount := 0 // 🆕 شمارنده تریدهای برنده
 
 	for _, htf := range htfCandles {
 		if currentCapital <= 0 {
-			break // توقف در صورت لیکوئید شدن
+			break
 		}
 
-		// شرط ورود: بدنه بزرگتر از سایه
 		if !htf.IsMarubozu() {
 			continue
 		}
 
 		var tradeType string
 		if htf.IsGreen() {
-			tradeType = "Short" // صعودی -> Sell
+			tradeType = "Short"
 		} else if htf.IsRed() {
-			tradeType = "Long" // نزولی -> Buy
+			tradeType = "Long"
 		} else {
-			continue // کندل دوجی
+			continue
 		}
 
 		entryPrice := htf.Close
@@ -97,11 +104,9 @@ func runSingleBacktest(
 		}
 		entryTime := htf.Time
 
-		// محاسبه حجم بر اساس سرمایه درگیر (Compounding)
 		tradeCapital := currentCapital
 		quantity := (tradeCapital * leverage) / entryPrice
 
-		// تبدیل دلار به فاصله قیمتی
 		priceDistTP := tpUSD / quantity
 		priceDistSL := slUSD / quantity
 
@@ -114,7 +119,6 @@ func runSingleBacktest(
 			slPrice = entryPrice + priceDistSL
 		}
 
-		// پیدا کردن اولین کندل LTF بعد از زمان ورود با Binary Search (سرعت بالا)
 		startIdx := sort.Search(len(ltfCandles), func(i int) bool {
 			return ltfCandles[i].Time > entryTime
 		})
@@ -122,12 +126,11 @@ func runSingleBacktest(
 		var status string
 		var exitPrice float64
 		var exitTime int64
-		mfe := 0.0 // Max Favorable Excursion (بیشترین سود شناور)
-		mae := 0.0 // Max Adverse Excursion (بیشترین ضرر شناور)
+		mfe := 0.0
+		mae := 0.0
 		mfeTime := entryTime
 		maeTime := entryTime
 
-		// بررسی رسیدن به TP یا SL در تایم فریم پایین تر
 		for i := startIdx; i < len(ltfCandles); i++ {
 			ltf := ltfCandles[i]
 			hitTP := false
@@ -171,9 +174,8 @@ func runSingleBacktest(
 				}
 			}
 
-			// تعیین نتیجه ترید
 			if hitTP && hitSL {
-				status = "SL" // حالت محافظه‌کارانه: اگر هر دو در یک کندل خوردند، SL در نظر گرفته می‌شود
+				status = "SL"
 				exitPrice = slPrice
 				exitTime = ltf.Time
 				break
@@ -190,7 +192,6 @@ func runSingleBacktest(
 			}
 		}
 
-		// اگر تا انتهای دیتا هیچکدام نخورد
 		if status == "" {
 			if len(ltfCandles) > 0 {
 				lastLtf := ltfCandles[len(ltfCandles)-1]
@@ -202,7 +203,6 @@ func runSingleBacktest(
 			}
 		}
 
-		// محاسبه سود/زیان نهایی
 		var pnl float64
 		if tradeType == "Long" {
 			pnl = (exitPrice - entryPrice) * quantity
@@ -212,7 +212,11 @@ func runSingleBacktest(
 
 		currentCapital += pnl
 
-		// ثبت ترید در ساختار Trade
+		// 🆕 شمارش ترید برنده
+		if status == "TP" {
+			winCount++
+		}
+
 		trade := models.Trade{
 			Type:          tradeType,
 			OpenPrice:     entryPrice,
@@ -237,7 +241,7 @@ func runSingleBacktest(
 	}
 
 	netGain := currentCapital - initialCapital
-	return trades, netGain
+	return trades, netGain, winCount // 🆕 برگرداندن winCount
 }
 
 func PrintCombinedMatrix(results *BacktestOutput) {
