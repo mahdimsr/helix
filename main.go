@@ -93,8 +93,8 @@ func main() {
 		fmt.Println()
 	}*/
 
-	/*targetTP := 40.0
-	targetSL := 1.0
+	targetTP := 6.0
+	targetSL := 50.0
 	key := fmt.Sprintf("TP_%v_SL_%v", targetTP, targetSL)
 
 	fmt.Printf("\n--- لیست تریدها برای %s ---\n", key)
@@ -106,7 +106,7 @@ func main() {
 
 		fmt.Printf("[%s] Entry: %.2f %s | Exit: %.2f %s | Result: %s | PnL%%: %.2f%%\n",
 			t.Type, t.OpenPrice, openTime, t.ClosePrice, closeTime, t.Status, t.GainPercent)
-	}*/
+	}
 
 }
 

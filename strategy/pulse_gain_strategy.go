@@ -46,7 +46,7 @@ func RunBacktest(
 
 	for i, tpUSD := range tpValues {
 		for j, slUSD := range slValues {
-			trades, netGain, winCount := runSingleBacktest(htfCandles, ltfCandles, initialCapital, leverage, tpUSD, slUSD)
+			trades, netGain, winCount, _ := runSingleBacktest(htfCandles, ltfCandles, initialCapital, leverage, tpUSD, slUSD, 0)
 
 			output.GainMatrix[i][j] = netGain
 			output.CountMatrix[i][j] = len(trades)
@@ -74,15 +74,28 @@ func runSingleBacktest(
 	leverage float64,
 	tpUSD float64,
 	slUSD float64,
-) ([]models.Trade, float64, int) { // 🆕 مقدار برگشتی سوم: تعداد تریدهای برنده
+	liquidationThreshold float64,
+) ([]models.Trade, float64, int, bool) {
 
 	var trades []models.Trade
 	currentCapital := initialCapital
-	winCount := 0 // 🆕 شمارنده تریدهای برنده
+	winCount := 0
+	liquidated := false
+
+	liquidationLevel := initialCapital * liquidationThreshold
+
+	// 🆕 متغیر برای ذخیره زمان بسته شدن آخرین ترید
+	var lastCloseTime int64 = 0
 
 	for _, htf := range htfCandles {
-		if currentCapital <= 0 {
+		if currentCapital <= liquidationLevel {
+			liquidated = true
 			break
+		}
+
+		// 🛑 چک کردن همپوشانی: اگر زمان این کندل قبل از بسته شدن ترید قبلی است، نادیده بگیر
+		if htf.Time < lastCloseTime {
+			continue
 		}
 
 		if !htf.IsMarubozu() {
@@ -212,9 +225,18 @@ func runSingleBacktest(
 
 		currentCapital += pnl
 
-		// 🆕 شمارش ترید برنده
+		// 🛠️ به‌روزرسانی زمان بسته شدن برای جلوگیری از همپوشانی در دور بعدی حلقه
+		lastCloseTime = exitTime
+
 		if status == "TP" {
 			winCount++
+		}
+
+		if currentCapital <= liquidationLevel {
+			liquidated = true
+			trade := models.Trade{ /* ... (همان کد قبلی برای LIQUIDATED) ... */ }
+			trades = append(trades, trade)
+			break
 		}
 
 		trade := models.Trade{
@@ -241,7 +263,7 @@ func runSingleBacktest(
 	}
 
 	netGain := currentCapital - initialCapital
-	return trades, netGain, winCount // 🆕 برگرداندن winCount
+	return trades, netGain, winCount, liquidated
 }
 
 func PrintCombinedMatrix(results *BacktestOutput) {
