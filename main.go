@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"helix/chart"
 	"helix/database"
-	"helix/strategy"
-	"os"
+	"helix/walking"
+	"log"
 	"time"
 )
 
@@ -34,14 +32,40 @@ func main() {
 		MaxConcurrentTrades:     int(100 / bestResult.Config.AllocationPercent),
 	}*/
 
-	nexCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-08-24", "2026-08-29")
-	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "5m", "2026-08-24", "2026-08-29")
+	layout := "2006-01-02"
+
+	startTimeObj, err := time.Parse(layout, "2026-08-03")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	endTimeObj, err := time.Parse(layout, "2026-08-29")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	highCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-08-01", "2026-08-29")
+	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "5m", "2026-08-01", "2026-08-29")
 
 	tpDollars := makeRange(1.0, 100.0, 1.0)
 	slDollars := makeRange(1.0, 50.0, 1.0)
 
-	results := strategy.RunBacktest(
-		nexCandles,
+	walkingForwardResults := walking.WalkForward(
+		highCandles,
+		lowCandles,
+		startTimeObj.Unix(),
+		endTimeObj.Unix(),
+		3,
+		1000,
+		10,
+		tpDollars,
+		slDollars,
+	)
+
+	walking.PrintWalkForwardTrades(walkingForwardResults)
+
+	/*results := strategy.RunBacktest(
+		highCandles,
 		lowCandles,
 		100.0, // سرمایه اولیه 1000 دلار
 		100.0, // لوریج 10
@@ -49,9 +73,8 @@ func main() {
 		slDollars,
 	)
 
-	//strategy.PrintCombinedMatrix(results)
 
-	err := chart.GenerateInteractiveChart(results, "chart.html")
+	err = chart.GenerateInteractiveChart(results, "chart.html")
 	chartURL, err := chart.GenerateShortChartURL(results)
 	if err != nil {
 		fmt.Println("خطا در تولید نمودار:", err)
@@ -83,7 +106,8 @@ func main() {
 	}
 
 	scoredResults := topResults.ScoreResults()
-	strategy.PrintScoredResults(scoredResults)
+	strategy.PrintScoredResults(scoredResults)*/
+
 	/*fmt.Println("--- ماتریس سود خالص (سطرها: TP / ستون‌ها: SL) ---")
 
 	fmt.Printf("%-8s |", "TP \\ SL")
