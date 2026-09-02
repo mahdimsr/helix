@@ -82,6 +82,8 @@ func main() {
 		return
 	}
 
+	scoredResults := topResults.ScoreResults()
+	strategy.PrintScoredResults(scoredResults)
 	/*fmt.Println("--- ماتریس سود خالص (سطرها: TP / ستون‌ها: SL) ---")
 
 	fmt.Printf("%-8s |", "TP \\ SL")

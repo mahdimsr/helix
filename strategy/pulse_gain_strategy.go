@@ -25,6 +25,19 @@ type MaxGainPoint struct {
 	IndexSL int
 }
 
+type ScoredResult struct {
+	TP          float64
+	SL          float64
+	Gain        float64
+	Trades      int
+	WinRate     float64
+	RR          float64
+	ScoreGain   float64 // نمره Gain (بین 0 تا 1)
+	ScoreTrades float64 // نمره Trades (بین 0 تا 1)
+	ScoreRR     float64 // نمره R/R (بین 0 تا 1)
+	TotalScore  float64 // مجموع سه نمره
+}
+
 func RunBacktest(
 	htfCandles []models.Candle,
 	ltfCandles []models.Candle,
@@ -378,4 +391,129 @@ func (results *BacktestOutput) FilterByGainThreshold(threshold float64) *Backtes
 	fmt.Printf("   نقاط فیلتر شده: %d از %d\n", filteredCount, len(results.TPValues)*len(results.SLValues))
 
 	return filtered
+}
+
+func (results *BacktestOutput) ScoreResults() []ScoredResult {
+	// مرحله 1: پیدا کردن بیشترین مقادیر (Max Values)
+	maxGain := 0.0
+	maxTrades := 0
+	maxRR := 0.0
+
+	// ابتدا باید همه نقاط معتبر را جمع کنیم
+	var validPoints []ScoredResult
+
+	for i, tp := range results.TPValues {
+		for j, sl := range results.SLValues {
+			// فقط نقاطی که ترید دارند
+			if results.CountMatrix[i][j] == 0 {
+				continue
+			}
+
+			gain := results.GainMatrix[i][j]
+			trades := results.CountMatrix[i][j]
+			winRate := results.WinRateMatrix[i][j]
+			rr := tp / sl
+
+			validPoints = append(validPoints, ScoredResult{
+				TP:      tp,
+				SL:      sl,
+				Gain:    gain,
+				Trades:  trades,
+				WinRate: winRate,
+				RR:      rr,
+			})
+
+			// به‌روزرسانی ماکزیمم‌ها
+			if gain > maxGain {
+				maxGain = gain
+			}
+			if trades > maxTrades {
+				maxTrades = trades
+			}
+			if rr > maxRR {
+				maxRR = rr
+			}
+		}
+	}
+
+	if len(validPoints) == 0 {
+		fmt.Println("⚠️ هیچ نقطه معتبری برای نمره‌دهی وجود ندارد")
+		return []ScoredResult{}
+	}
+
+	// مرحله 2: محاسبه نمرات برای هر نقطه
+	for idx := range validPoints {
+		pt := &validPoints[idx]
+
+		// نمره Gain: نسبت به بیشترین Gain
+		if maxGain > 0 {
+			pt.ScoreGain = pt.Gain / maxGain
+		} else {
+			pt.ScoreGain = 0
+		}
+
+		// نمره Trades: نسبت به بیشترین Trades
+		if maxTrades > 0 {
+			pt.ScoreTrades = float64(pt.Trades) / float64(maxTrades)
+		} else {
+			pt.ScoreTrades = 0
+		}
+
+		// نمره R/R: نسبت به بیشترین R/R
+		if maxRR > 0 {
+			pt.ScoreRR = pt.RR / maxRR
+		} else {
+			pt.ScoreRR = 0
+		}
+
+		// مجموع نمرات
+		pt.TotalScore = pt.ScoreGain + pt.ScoreTrades + pt.ScoreRR
+	}
+
+	// مرحله 3: مرتب‌سازی نزولی بر اساس TotalScore
+	sort.Slice(validPoints, func(i, j int) bool {
+		return validPoints[i].TotalScore > validPoints[j].TotalScore
+	})
+
+	// نمایش خلاصه در کنسول
+	fmt.Printf("\n📊 خلاصه نمره‌دهی:\n")
+	fmt.Printf("   بیشترین Gain: $%.2f\n", maxGain)
+	fmt.Printf("   بیشترین Trades: %d\n", maxTrades)
+	fmt.Printf("   بیشترین R/R: %.2f\n", maxRR)
+	fmt.Printf("   تعداد نقاط نمره‌دهی شده: %d\n", len(validPoints))
+	fmt.Printf("   🏆 بهترین ترکیب: TP=%.0f, SL=%.0f (Total Score: %.3f)\n",
+		validPoints[0].TP, validPoints[0].SL, validPoints[0].TotalScore)
+
+	return validPoints
+}
+
+func PrintScoredResults(scored []ScoredResult) {
+	if len(scored) == 0 {
+		fmt.Println("هیچ نتیجه‌ای برای نمایش وجود ندارد")
+		return
+	}
+
+	topN := len(scored)
+
+	fmt.Printf("\n🏆 Top %d Results (مرتب شده بر اساس Total Score):\n", topN)
+	fmt.Println("┌─────┬────────┬────────┬───────────┬────────┬─────────┬───────────┬───────────┬───────────┬────────────┬────────────┐")
+	fmt.Println("│ Rank│   TP   │   SL   │   Gain    │ Trades │ WinRate │    R/R    │ ScoreGain │ Score R/R │ ScoreTrades│ TotalScore │")
+	fmt.Println("├─────┼────────┼────────┼───────────┼────────┼─────────┼───────────┼───────────┼───────────┼────────────┼────────────┤")
+
+	for i := 0; i < topN; i++ {
+		pt := scored[i]
+		fmt.Printf("│ %3d │ %6.0f │ %6.0f │ $%8.2f │ %6d │ %6.1f%% │ %9.2f │ %9.3f │ %9.3f │ %9.3f  │ %10.3f │\n",
+			i+1,
+			pt.TP, pt.SL,
+			pt.Gain,
+			pt.Trades,
+			pt.WinRate,
+			pt.RR,
+			pt.ScoreGain,
+			pt.ScoreRR,
+			pt.ScoreTrades,
+			pt.TotalScore,
+		)
+	}
+	fmt.Println("└─────┴────────┴────────┴───────────┴────────┴─────────┴───────────┴───────────┴───────────┴────────────┴────────────┘")
 }
