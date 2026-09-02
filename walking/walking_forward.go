@@ -36,9 +36,14 @@ type Window struct {
 }
 
 func filterCandlesByTime(candles []models.Candle, start, end int64) []models.Candle {
+	// 🆕 نرمال‌سازی ورودی‌ها
+	start = NormalizeTimestamp(start)
+	end = NormalizeTimestamp(end)
+
 	var filtered []models.Candle
 	for _, c := range candles {
-		if c.Time >= start && c.Time < end {
+		cTime := NormalizeTimestamp(c.Time)
+		if cTime >= start && cTime < end {
 			filtered = append(filtered, c)
 		}
 	}
@@ -64,6 +69,10 @@ func executeTradesWithFixedTPSL(
 	slUSD float64,
 	windowEnd int64,
 ) []WalkForwardTrade {
+
+	windowEnd = NormalizeTimestamp(windowEnd)
+	htfWindow = NormalizeCandleTimes(htfWindow)
+	ltfAll = NormalizeCandleTimes(ltfAll)
 
 	var trades []WalkForwardTrade
 	currentCapital := initialCapital
@@ -223,6 +232,18 @@ func WalkForward(
 	tpRange []float64,
 	slRange []float64,
 ) *WalkForwardResult {
+
+	htfCandles = NormalizeCandleTimes(htfCandles)
+	ltfCandles = NormalizeCandleTimes(ltfCandles)
+	startTime = NormalizeTimestamp(startTime)
+	endTime = NormalizeTimestamp(endTime)
+
+	// 🆕 دیباگ: نمایش بازه زمانی دیتا
+	DebugTimeRange(htfCandles, "HTF Candles (High TF)")
+	DebugTimeRange(ltfCandles, "LTF Candles (Low TF)")
+	fmt.Printf("🎯 بازه درخواستی: %s → %s\n",
+		time.Unix(startTime, 0).Format("2006-01-02 15:04:05"),
+		time.Unix(endTime, 0).Format("2006-01-02 15:04:05"))
 
 	windowSeconds := int64(windowDays * 24 * 3600)
 
@@ -385,4 +406,36 @@ func PrintWalkForwardTrades(result *WalkForwardResult) {
 		)
 	}
 	fmt.Println("└─────┴────────────────────┴────────┴──────────┴──────────┴────────┴────────┴──────────┴────────────┘")
+}
+
+func NormalizeTimestamp(ts int64) int64 {
+	// اگر عدد بزرگ‌تر از سال 3000 به ثانیه باشد، قطعاً میلی‌ثانیه است
+	// 32503680000 = 1 ژانویه 3000 به ثانیه
+	if ts > 32503680000 {
+		return ts / 1000 // تبدیل میلی‌ثانیه به ثانیه
+	}
+	return ts
+}
+
+func NormalizeCandleTimes(candles []models.Candle) []models.Candle {
+	normalized := make([]models.Candle, len(candles))
+	copy(normalized, candles)
+	for i := range normalized {
+		normalized[i].Time = NormalizeTimestamp(normalized[i].Time)
+	}
+	return normalized
+}
+
+// DebugTimeRange بازه زمانی دیتا را نمایش می‌دهد (برای دیباگ)
+func DebugTimeRange(candles []models.Candle, label string) {
+	if len(candles) == 0 {
+		fmt.Printf("⚠️ %s: هیچ کندلی وجود ندارد\n", label)
+		return
+	}
+	first := candles[0]
+	last := candles[len(candles)-1]
+	fmt.Printf("🔍 %s:\n", label)
+	fmt.Printf("   تعداد کندل‌ها: %d\n", len(candles))
+	fmt.Printf("   اولین: %s (Time=%d)\n", time.Unix(first.Time, 0).Format("2006-01-02 15:04:05"), first.Time)
+	fmt.Printf("   آخرین: %s (Time=%d)\n", time.Unix(last.Time, 0).Format("2006-01-02 15:04:05"), last.Time)
 }
