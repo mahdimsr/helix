@@ -17,6 +17,14 @@ type BacktestOutput struct {
 	LiquidatedMatrix [][]bool
 }
 
+type MaxGainPoint struct {
+	TP      float64
+	SL      float64
+	Gain    float64
+	IndexTP int
+	IndexSL int
+}
+
 func RunBacktest(
 	htfCandles []models.Candle,
 	ltfCandles []models.Candle,
@@ -291,4 +299,83 @@ func PrintCombinedMatrix(results *BacktestOutput) {
 		}
 		fmt.Println()
 	}
+}
+
+func (results *BacktestOutput) FindMaxGainPoint() *MaxGainPoint {
+	maxGain := -float64(1<<63 - 1) // کوچکترین مقدار ممکن
+	maxPoint := &MaxGainPoint{}
+
+	for i, tp := range results.TPValues {
+		for j, sl := range results.SLValues {
+			gain := results.GainMatrix[i][j]
+			if gain > maxGain {
+				maxGain = gain
+				maxPoint.TP = tp
+				maxPoint.SL = sl
+				maxPoint.Gain = gain
+				maxPoint.IndexTP = i
+				maxPoint.IndexSL = j
+			}
+		}
+	}
+
+	return maxPoint
+}
+
+func (results *BacktestOutput) FilterByGainThreshold(threshold float64) *BacktestOutput {
+	if threshold < 0 || threshold > 100 {
+		threshold = 90
+	}
+
+	threshold = threshold / 100
+
+	// پیدا کردن Max Gain
+	maxPoint := results.FindMaxGainPoint()
+	thresholdValue := maxPoint.Gain * threshold
+
+	// ساخت خروجی جدید
+	filtered := &BacktestOutput{
+		TPValues:         results.TPValues,
+		SLValues:         results.SLValues,
+		GainMatrix:       make([][]float64, len(results.TPValues)),
+		CountMatrix:      make([][]int, len(results.TPValues)),
+		WinRateMatrix:    make([][]float64, len(results.TPValues)),
+		LiquidatedMatrix: make([][]bool, len(results.TPValues)),
+		TradeLogs:        make(map[string][]models.Trade),
+	}
+
+	// مقداردهی اولیه ماتریس‌ها
+	for i := range results.TPValues {
+		filtered.GainMatrix[i] = make([]float64, len(results.SLValues))
+		filtered.CountMatrix[i] = make([]int, len(results.SLValues))
+		filtered.WinRateMatrix[i] = make([]float64, len(results.SLValues))
+	}
+
+	// فیلتر کردن نقاط
+	filteredCount := 0
+	for i, tp := range results.TPValues {
+		for j, sl := range results.SLValues {
+			gain := results.GainMatrix[i][j]
+
+			// اگر gain >= threshold، این نقطه را نگه دار
+			if gain >= thresholdValue {
+				filtered.GainMatrix[i][j] = gain
+				filtered.CountMatrix[i][j] = results.CountMatrix[i][j]
+				filtered.WinRateMatrix[i][j] = results.WinRateMatrix[i][j]
+
+				key := fmt.Sprintf("TP_%v_SL_%v", tp, sl)
+				filtered.TradeLogs[key] = results.TradeLogs[key]
+
+				filteredCount++
+			}
+			// در غیر این صورت، مقادیر صفر باقی می‌مانند
+		}
+	}
+
+	fmt.Printf("🔍 فیلتر 90%% Max Gain:\n")
+	fmt.Printf("   Max Gain: $%.2f (TP=%.0f, SL=%.0f)\n", maxPoint.Gain, maxPoint.TP, maxPoint.SL)
+	fmt.Printf("   Threshold: $%.2f (90%% of Max)\n", thresholdValue)
+	fmt.Printf("   نقاط فیلتر شده: %d از %d\n", filteredCount, len(results.TPValues)*len(results.SLValues))
+
+	return filtered
 }

@@ -43,8 +43,8 @@ func main() {
 	results := strategy.RunBacktest(
 		nexCandles,
 		lowCandles,
-		1000.0, // سرمایه اولیه 1000 دلار
-		100.0,  // لوریج 10
+		100.0, // سرمایه اولیه 1000 دلار
+		100.0, // لوریج 10
 		tpDollars,
 		slDollars,
 	)
@@ -74,6 +74,14 @@ func main() {
 
 	time.Sleep(1 * time.Second)
 
+	topResults := results.FilterByGainThreshold(90)
+
+	err = chart.GenerateInteractiveChart(topResults, "top.html")
+	if err != nil {
+		fmt.Println("خطا در تولید نمودار:", err)
+		return
+	}
+
 	/*fmt.Println("--- ماتریس سود خالص (سطرها: TP / ستون‌ها: SL) ---")
 
 	fmt.Printf("%-8s |", "TP \\ SL")
@@ -93,7 +101,7 @@ func main() {
 		fmt.Println()
 	}*/
 
-	targetTP := 6.0
+	/*targetTP := 6.0
 	targetSL := 50.0
 	key := fmt.Sprintf("TP_%v_SL_%v", targetTP, targetSL)
 
@@ -106,7 +114,7 @@ func main() {
 
 		fmt.Printf("[%s] Entry: %.2f %s | Exit: %.2f %s | Result: %s | PnL%%: %.2f%%\n",
 			t.Type, t.OpenPrice, openTime, t.ClosePrice, closeTime, t.Status, t.GainPercent)
-	}
+	}*/
 
 }
 
