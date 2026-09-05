@@ -34,18 +34,18 @@ func main() {
 
 	layout := "2006-01-02"
 
-	startTimeObj, err := time.Parse(layout, "2026-08-03")
+	startTimeObj, err := time.Parse(layout, "2026-08-01")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	endTimeObj, err := time.Parse(layout, "2026-08-29")
+	endTimeObj, err := time.Parse(layout, "2026-09-05")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	highCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-08-01", "2026-08-29")
-	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "5m", "2026-08-01", "2026-08-29")
+	highCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-08-01", "2026-09-05")
+	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "5m", "2026-08-01", "2026-09-05")
 
 	tpDollars := makeRange(1.0, 100.0, 1.0)
 	slDollars := makeRange(1.0, 50.0, 1.0)
