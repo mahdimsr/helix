@@ -50,7 +50,7 @@ func main() {
 	tpDollars := makeRange(1.0, 100.0, 1.0)
 	slDollars := makeRange(1.0, 50.0, 1.0)
 
-	walkingForwardResults := walking.WalkForward(
+	walkingForwardResults := walking.WalkForwardWithBodyGroups(
 		highCandles,
 		lowCandles,
 		startTimeObj.Unix(),
