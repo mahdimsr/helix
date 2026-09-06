@@ -392,7 +392,7 @@ func PrintWalkForwardTrades(result *WalkForwardResult) {
 	fmt.Println("├─────┼────────────────────┼────────┼──────────┼──────────┼────────┼────────┼──────────┼────────────┤")
 
 	for i, t := range result.Trades {
-		timeStr := time.Unix(t.EntryTime, 0).Format("2006-01-02 15:04")
+		timeStr := time.Unix(t.EntryTime, 0).UTC().Format("2006-01-02 15:04")
 		fmt.Printf("│ %3d │ %s │ %-6s │ %8.2f │ %8.2f │ $%5.0f │ $%4.0f │ $%7.2f │ %-10s │\n",
 			i+1,
 			timeStr,
