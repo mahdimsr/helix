@@ -2,8 +2,10 @@ package strategy
 
 import (
 	"fmt"
+	"helix/bollingerband"
 	"helix/indicators"
 	"helix/models"
+	"time"
 )
 
 func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, slPrice float64) {
@@ -14,10 +16,12 @@ func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, 
 	signalIndex := len(candles) - 2
 	lastCandle := candles[signalIndex]
 
-	fmt.Printf("LastCandle info: \n open:%.3f openTime: %s \n ismazuburo: %s \n",
-		lastCandle.Open,
-		lastCandle.ReadableTime,
-		lastCandle.IsMarubozu())
+	bollingerbands := bollingerband.CalculateBollingerBandsEMA(candles, 20, 2)
+	lastBollinger := bollingerbands[signalIndex]
+
+	openTime := time.Unix(lastCandle.Time, 0).UTC().Format("2006-01-02 15:04:05")
+	fmt.Printf("LAST CANDLE ==> Time: %s | close: %.2f | middle: %.2f | upper: %.2f | lower: %.2f \n",
+		openTime, lastCandle.Close, lastBollinger.Middle, lastBollinger.Upper, lastBollinger.Lower)
 
 	if lastCandle.BodyPercentage() < 0.2 {
 		return indicators.NoneSignal, 2, 2
@@ -28,27 +32,27 @@ func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, 
 	}
 
 	//tpPct := dynamicTPPercent(candles, signalIndex, 100, 1)
-	tpPct := 0.5
-	if lastCandle.BodyPercentage() >= 0.2 && lastCandle.BodyPercentage() < 0.4 {
+	tpPct := 0.1
+	if lastCandle.BodyPercentage() >= 0.2 && lastCandle.BodyPercentage() < 0.3 {
+		tpPct = 0.6
+	}
+
+	if lastCandle.BodyPercentage() >= 0.3 && lastCandle.BodyPercentage() < 0.5 {
 		tpPct = 0.2
 	}
 
-	if lastCandle.BodyPercentage() >= 0.4 && lastCandle.BodyPercentage() < 0.6 {
-		tpPct = 0.3
-	}
-
-	if lastCandle.BodyPercentage() >= 0.6 {
-		tpPct = 0.4
+	if lastCandle.BodyPercentage() >= 0.5 {
+		tpPct = 0.1
 	}
 
 	distPrice := lastCandle.Body() * tpPct
 	entry := lastCandle.Close
 
-	if lastCandle.IsGreen() {
+	if lastCandle.IsGreen() && inUpperLand(lastBollinger, lastCandle) {
 		tpPrice = entry - distPrice
 		slPrice = calculateSL(entry, "SELL", 0.5)
 		signal = indicators.SellSignal
-	} else {
+	} else if lastCandle.IsRed() && inLowerLand(lastBollinger, lastCandle) {
 		tpPrice = entry + distPrice
 		slPrice = calculateSL(entry, "BUY", 0.5)
 		signal = indicators.BuySignal
@@ -306,4 +310,14 @@ func isCandleBodyBigger(candles []models.Candle, signalIdx int, lookBack int, do
 
 	ratio := float64(smallerCount) / float64(lookBack) * 100
 	return ratio >= dominancePercentage
+}
+
+func inUpperLand(bollinger bollingerband.BollingerBand, candle models.Candle) bool {
+
+	return candle.Close > bollinger.Middle && candle.Open > bollinger.Middle
+}
+
+func inLowerLand(bollinger bollingerband.BollingerBand, candle models.Candle) bool {
+
+	return candle.Close < bollinger.Middle && candle.Open < bollinger.Middle
 }

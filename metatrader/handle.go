@@ -39,7 +39,7 @@ func Handle(conn net.Conn) {
 
 	symbol := "BTCUSD.ecn"
 	timeframe := "PERIOD_M15"
-	candlesCount := 100
+	candlesCount := 500
 
 	ticketRepo, err := database.NewFileRepository("tickets.json")
 	if err != nil {
