@@ -398,6 +398,7 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 	maxGain := 0.0
 	maxTrades := 0
 	maxRR := 0.0
+	maxWinrate := 0.0
 
 	// ابتدا باید همه نقاط معتبر را جمع کنیم
 	var validPoints []ScoredResult
@@ -433,6 +434,9 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 			if rr > maxRR {
 				maxRR = rr
 			}
+			if winRate > maxWinrate {
+				maxWinrate = winRate
+			}
 		}
 	}
 
@@ -466,8 +470,15 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 			pt.ScoreRR = 0
 		}
 
+		// نمره R/R: نسبت به بیشترین R/R
+		if maxWinrate > 0 {
+			pt.WinRate = pt.WinRate / maxWinrate
+		} else {
+			pt.WinRate = 0
+		}
+
 		// مجموع نمرات
-		pt.TotalScore = pt.ScoreGain + pt.ScoreTrades + pt.ScoreRR
+		pt.TotalScore = pt.ScoreGain + pt.ScoreTrades + pt.ScoreRR + maxWinrate
 	}
 
 	// مرحله 3: مرتب‌سازی نزولی بر اساس TotalScore
