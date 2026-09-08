@@ -59,7 +59,7 @@ func (r *CandleRepository) Fetch(ctx context.Context, symbol string, timeframe s
 		"timeframe": timeframe,
 		"time": bson.M{
 			"$gte": startTimeObj.UnixMilli(),
-			"$lte": endTimeObj.UnixMilli(),
+			"$lt":  endTimeObj.UnixMilli(),
 		},
 	}
 
