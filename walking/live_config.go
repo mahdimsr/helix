@@ -13,7 +13,7 @@ type LiveConfig struct {
 // DefaultLiveConfig پیکربندی پیش‌فرض (قابل تنظیم بر اساس بک‌تست)
 func DefaultLiveConfig() LiveConfig {
 	return LiveConfig{
-		LookbackDays:    30, // 30 روز گذشته
+		LookbackDays:    3,  // 30 روز گذشته
 		TimeframeMinute: 15, // تایم‌فریم M15
 		TPRange:         makeRange(10.0, 100.0, 1),
 		SLRange:         makeRange(10.0, 50.0, 1),
