@@ -49,7 +49,7 @@ func Handle(conn net.Conn) {
 
 	symbol := "BTCUSD.ecn"
 	timeframe := "PERIOD_M15"
-	candlesCount := 500
+	candlesCount := 700
 
 	ticketRepo, err := database.NewFileRepository("tickets.json")
 	if err != nil {
@@ -379,20 +379,25 @@ func evaluateStrategy(symbol string, htf []models.Candle, ltf []models.Candle, c
 		return
 	}
 
-	// اگر به هر دلیلی M5 هنوز لود نشده بود، از همان M15 استفاده کن (Fallback)
 	activeLTF := ltf
 	if len(activeLTF) < 50 {
 		fmt.Println("⚠️ M5 data not ready yet, falling back to M15 for LTF analysis.")
 		activeLTF = htf
 	}
 
-	liveSignal := walking.GenerateLiveSignal(htf, activeLTF, 300)
+	// 🆕 استفاده از LiveConfig
+	config := walking.DefaultLiveConfig()
+
+	// اگر می‌خواهید مقادیر را از فایل کانفیگ بخوانید:
+	// config := loadConfigFromFile("live_config.json")
+
+	liveSignal := walking.GenerateLiveSignal(htf, activeLTF, config)
 
 	fmt.Printf("🤖 Live Eval -> Signal: %s | TP: $%.0f | SL: $%.0f | BodyGroup: %d \n",
 		liveSignal.Signal, liveSignal.TP, liveSignal.SL, liveSignal.Group)
 
 	if liveSignal.Signal != "NONE" {
-		lastClosedCandle := htf[len(htf)-2] // کندل بسته شده M15
+		lastClosedCandle := htf[len(htf)-2]
 		amount := 0.2
 
 		fmt.Printf("🚀 Executing Trade: %s at price %.2f\n", liveSignal.Signal, lastClosedCandle.Close)

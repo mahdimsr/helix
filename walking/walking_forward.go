@@ -864,11 +864,13 @@ type LiveSignalResult struct {
 }
 
 // GenerateLiveSignal منطق بک‌تست را برای لحظه فعلی شبیه‌سازی می‌کند
-func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, lookbackCount int) LiveSignalResult {
-	// مقدار پیش‌فرض: بدون سیگنال
-	res := LiveSignalResult{Trade: "NONE", Signal: indicators.NoneSignal, TP: 0, SL: 0, Group: -1}
+func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, config LiveConfig) LiveSignalResult {
+	res := LiveSignalResult{Signal: "NONE", TP: 0, SL: 0, Group: -1}
 
-	// ۴. آماده‌سازی دیتای Lookback (مثلاً ۳۰۰ کندل قبل از آخرین کندل بسته شده)
+	lookbackCount := config.CalculateLookbackCount()
+
+	fmt.Printf("\n🔍 بهینه‌سازی با %d کندل (%d روز)...\n", lookbackCount, config.LookbackDays)
+
 	lookbackEnd := len(htfCandles) - 2
 	lookbackStart := lookbackEnd - lookbackCount
 	if lookbackStart < 0 {
@@ -877,99 +879,76 @@ func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, 
 
 	htfLookback := htfCandles[lookbackStart:lookbackEnd]
 
-	// مدیریت دیتای LTF: اگر دیتای LTF پاس داده نشد، از همان HTF استفاده می‌کنیم (با دقت کمتر)
 	ltfLookback := ltfCandles
 	if len(ltfLookback) == 0 {
 		ltfLookback = htfLookback
 	} else {
-		// برش دیتای LTF تا با بازه زمانی HTF همخوانی تقریبی داشته باشد
-		// (فرض بر این است که LTF مثلاً M1 است و 15 برابر HTF است)
-		multiplier := 15
+		multiplier := config.TimeframeMinute // مثلاً 15 برای M15
 		ltfLookbackLen := lookbackCount * multiplier
 		if len(ltfLookback) > ltfLookbackLen {
 			ltfLookback = ltfLookback[len(ltfLookback)-ltfLookbackLen:]
 		}
 	}
 
-	tpRange := makeRange(50.0, 100.0, 5)
-	slRange := makeRange(10.0, 50.0, 5)
-
 	groups := CalculateBestCombinationsByGroup(
 		htfLookback,
 		ltfLookback,
-		1000.0, // سرمایه فرضی برای محاسبه Score
-		10.0,   // لوریج فرضی
-		tpRange,
-		slRange,
+		config.InitialCapital,
+		config.Leverage,
+		config.TPRange,
+		config.SLRange,
 	)
 
 	PrintLiveOptimizationResults(groups)
 
-	fmt.Printf("\n---------------------- Backtest ----------------------- \n")
-	results := CalculateBestCombinationsByGroup(
-		htfLookback,
-		ltfLookback,
-		1000.0,
-		10,
-		tpRange,
-		slRange,
-	)
-	printGroupCombinations(results)
-
-	// اطمینان از وجود دیتای کافی (lookback + 1 کندل بسته شده + 1 کندل در حال تشکیل)
 	if len(htfCandles) < lookbackCount+2 {
-		fmt.Printf("line 912\n")
+		fmt.Printf("⚠️ Not enough candles. Need %d, have %d\n", lookbackCount+2, len(htfCandles))
 		return res
 	}
 
-	// ۱. انتخاب آخرین کندل بسته شده (ایندکس len-2).
-	// هرگز از len-1 استفاده نکنید چون کندل فعلی هنوز بسته نشده و Repaint می‌شود!
 	lastClosedCandle := htfCandles[len(htfCandles)-2]
 
-	// ۲. بررسی شرایط ورود (دقیقاً منطبق بر منطق بک‌تست)
 	if !lastClosedCandle.IsMarubozu() {
-		fmt.Printf("line 922\n")
 		return res
 	}
 
 	var tradeType string
 	var signal indicators.Signal
 	if lastClosedCandle.IsGreen() {
-		tradeType = "SELL" // منطق بک‌تست شما: کندل سبز HTF -> پوزیشن Short
+		tradeType = "SELL"
 		signal = indicators.SellSignal
 	} else if lastClosedCandle.IsRed() {
-		tradeType = "BUY" // منطق بک‌تست شما: کندل قرمز HTF -> پوزیشن Long
+		tradeType = "BUY"
 		signal = indicators.BuySignal
 	} else {
-		fmt.Printf("line 935\n")
 		return res
 	}
 
-	// ۳. تشخیص گروه بدنه کندل سیگنال
 	groupIdx := GetBodyGroupIndex(&lastClosedCandle)
 	if groupIdx < 0 {
-		fmt.Printf("line 942 \n")
-		return res // کندل ضعیف‌تر از 0.2% است
+		return res
 	}
 	res.Group = groupIdx
 
-	// ۶. استخراج بهترین TP/SL برای گروه کندل فعلی
 	bestGroup := groups.Groups[groupIdx]
 	if bestGroup.BestTP > 0 && bestGroup.BestSL > 0 {
-		res.Trade = tradeType
 		res.Signal = signal
+		res.Trade = tradeType
 		res.TP = bestGroup.BestTP
 		res.SL = bestGroup.BestSL
+
+		fmt.Printf("\n🎯 کندل فعلی در گروه %d (%.1f%%-%.1f%%) قرار دارد\n",
+			groupIdx, bestGroup.MinPercent, bestGroup.MaxPercent)
+
+		fmt.Printf("✅ مقادیر انتخاب شده: TP=$%.0f | SL=$%.0f\n", bestGroup.BestTP, bestGroup.BestSL)
+
 	} else {
-		// اگر برای این گروه دیتای کافی نبود، از میانگین کل استفاده کن (Fallback)
-		// یا کلاً سیگنال نده. اینجا سیگنال نمی‌دهیم تا ایمن باشد.
-		res.Trade = "NONE"
 		res.Signal = indicators.NoneSignal
+		res.Trade = "NONE"
 	}
 
 	return res
 }
-
 func makeRange(from, to, step float64) []float64 {
 
 	var result []float64
