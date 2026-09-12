@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"helix/database"
-	"helix/indicators"
+	"helix/models"
 	"helix/notification"
-	"helix/strategy"
+	"helix/walking"
 	"io"
 	"log"
 	"math"
@@ -14,9 +14,16 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
+)
+
+var (
+	m15Candles []models.Candle
+	m5Candles  []models.Candle
+	mu         sync.Mutex
 )
 
 func Handle(conn net.Conn) {
@@ -30,6 +37,9 @@ func Handle(conn net.Conn) {
 	client := NewMT5Client(conn)
 
 	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+
+	ticker5m := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	tickerSec := time.NewTicker(3 * time.Second)
@@ -70,6 +80,8 @@ func Handle(conn net.Conn) {
 				time.Sleep(50 * time.Millisecond)
 				inquiryOpenOrders(*client, ticketRepo)
 			}
+		case <-ticker5m.C:
+			requestCandles(*client, symbol, "PERIOD_M5", 3*candlesCount)
 		case <-ticker.C:
 
 			fmt.Println("Requesting Candle")
@@ -111,21 +123,19 @@ func Handle(conn net.Conn) {
 					candles[i], candles[j] = candles[j], candles[i]
 				}
 
-				lastCandle := candles[len(candles)-1]
-				signal, tp, sl := strategy.PulseStrategy(candles)
+				mu.Lock()
 
-				fmt.Printf("signal: %s | tp: %.2f | sl: %.2f \n", signal, tp, sl)
+				if result.Timeframe == "M15" || result.Timeframe == "PERIOD_M15" {
 
-				if signal != indicators.NoneSignal {
+					m15Candles = candles
+					evaluateStrategy(symbol, m15Candles, m5Candles, *client, ticketRepo)
 
-					fmt.Printf("signal detected: %s", string(signal))
-
-					//amount, _, _ := strategy.CalculateOrderUtils(lastCandle.Close, string(signal))
-					amount := 0.2
-					placeOrder(*client, symbol, string(signal), amount, lastCandle.Close, tp, sl)
-				} else {
-					fmt.Println("signal not detected")
+				} else if result.Timeframe == "M5" || result.Timeframe == "PERIOD_M5" {
+					m5Candles = candles
+					fmt.Printf("✅ M5 Candles Updated in background. Total: %d\n", len(m5Candles))
 				}
+
+				mu.Unlock()
 			}
 
 			if result.Type == "ORDER" {
@@ -361,4 +371,33 @@ func calculateTPProgress(orderPrice, tpPrice, currentPrice float64) float64 {
 	progress := (coveredDistance / totalDistance) * 100
 
 	return progress
+}
+
+func evaluateStrategy(symbol string, htf []models.Candle, ltf []models.Candle, client MTClient, repo *database.FileRepository) {
+	if len(htf) < 50 {
+		fmt.Println("⚠️ Not enough M15 candles to evaluate strategy.")
+		return
+	}
+
+	// اگر به هر دلیلی M5 هنوز لود نشده بود، از همان M15 استفاده کن (Fallback)
+	activeLTF := ltf
+	if len(activeLTF) < 50 {
+		fmt.Println("⚠️ M5 data not ready yet, falling back to M15 for LTF analysis.")
+		activeLTF = htf
+	}
+
+	liveSignal := walking.GenerateLiveSignal(htf, activeLTF, 300)
+
+	fmt.Printf("🤖 Live Eval -> Signal: %s | TP: $%.0f | SL: $%.0f | BodyGroup: %d \n",
+		liveSignal.Signal, liveSignal.TP, liveSignal.SL, liveSignal.Group)
+
+	if liveSignal.Signal != "NONE" {
+		lastClosedCandle := htf[len(htf)-2] // کندل بسته شده M15
+		amount := 0.2
+
+		fmt.Printf("🚀 Executing Trade: %s at price %.2f\n", liveSignal.Signal, lastClosedCandle.Close)
+		placeOrder(client, symbol, liveSignal.Trade, amount, lastClosedCandle.Close, liveSignal.TP, liveSignal.SL)
+	} else {
+		fmt.Println("⏸️ No valid signal detected based on Walk-Forward logic.")
+	}
 }

@@ -124,7 +124,7 @@ void HandleCommands(int socket)
          string json = GetCandlesJSON(symbol, timeframe, count);
          if(json != "")
          {
-            if(SendCandles(json))
+            if(SendCandles(json, timeframeString))
                 Print("✅ Sent ", StringLen(json), " bytes JSON for candles");
             else
                 Print("❌ Failed to send candles");
@@ -552,12 +552,14 @@ void SendResult(int socket, bool ok, uint retcode, ulong ticket, string comment)
       Reconnect();
 }
 
-bool SendCandles(string candlesJsonString)
+bool SendCandles(string candlesJsonString, string timeframeStr)
 {
     string envelope = StringFormat(
-        "{\"type\":\"CANDLES\",\"data\":%s}", 
+        "{\"type\":\"CANDLES\",\"timeframe\":\"%s\",\"data\":%s}", 
+        timeframeStr,
         candlesJsonString
     );
+   
    
    return SendLargeString(envelope + "\n");
 }

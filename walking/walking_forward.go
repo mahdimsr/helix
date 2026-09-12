@@ -2,6 +2,7 @@ package walking
 
 import (
 	"fmt"
+	"helix/indicators"
 	"helix/models"
 	"helix/strategy"
 	"sort"
@@ -565,7 +566,7 @@ func WalkForwardWithBodyGroups(
 				continue
 			}
 
-			currentWindowGroups = calculateBestCombinationsByGroup(htfWindow, ltfWindow, initialCapital, leverage, tpRange, slRange)
+			currentWindowGroups = CalculateBestCombinationsByGroup(htfWindow, ltfWindow, initialCapital, leverage, tpRange, slRange)
 			printGroupCombinations(currentWindowGroups)
 			continue
 		}
@@ -602,7 +603,7 @@ func WalkForwardWithBodyGroups(
 
 		// بخش 2: محاسبه بهترین ترکیب جدید برای هر گروه
 		if len(htfWindow) > 0 && len(ltfWindow) > 0 {
-			currentWindowGroups = calculateBestCombinationsByGroup(htfWindow, ltfWindow, initialCapital, leverage, tpRange, slRange)
+			currentWindowGroups = CalculateBestCombinationsByGroup(htfWindow, ltfWindow, initialCapital, leverage, tpRange, slRange)
 			fmt.Printf("   🧮 ترکیب‌های جدید برای هر گروه محاسبه شد.\n")
 			printGroupCombinations(currentWindowGroups)
 		}
@@ -637,7 +638,7 @@ func WalkForwardWithBodyGroups(
 }
 
 // calculateBestCombinationsByGroup بهترین ترکیب TP/SL را برای هر گروه Body محاسبه می‌کند
-func calculateBestCombinationsByGroup(
+func CalculateBestCombinationsByGroup(
 	htfWindow []models.Candle,
 	ltfWindow []models.Candle,
 	initialCapital float64,
@@ -851,4 +852,129 @@ func executeTradesWithBodyGroups(
 	}
 
 	return trades
+}
+
+// LiveSignalResult ساختار خروجی برای ربات لایو
+type LiveSignalResult struct {
+	Trade  string // "BUY", "SELL", "NONE"
+	Signal indicators.Signal
+	TP     float64 // مقدار تیک پروفیت به دلار (یا واحد قیمت)
+	SL     float64 // مقدار استاپ لاس به دلار (یا واحد قیمت)
+	Group  int     // شماره گروه کندل (برای لاگ و دیباگ)
+}
+
+// GenerateLiveSignal منطق بک‌تست را برای لحظه فعلی شبیه‌سازی می‌کند
+func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, lookbackCount int) LiveSignalResult {
+	// مقدار پیش‌فرض: بدون سیگنال
+	res := LiveSignalResult{Trade: "NONE", Signal: indicators.NoneSignal, TP: 0, SL: 0, Group: -1}
+
+	// ۴. آماده‌سازی دیتای Lookback (مثلاً ۳۰۰ کندل قبل از آخرین کندل بسته شده)
+	lookbackEnd := len(htfCandles) - 2
+	lookbackStart := lookbackEnd - lookbackCount
+	if lookbackStart < 0 {
+		lookbackStart = 0
+	}
+
+	htfLookback := htfCandles[lookbackStart:lookbackEnd]
+
+	// مدیریت دیتای LTF: اگر دیتای LTF پاس داده نشد، از همان HTF استفاده می‌کنیم (با دقت کمتر)
+	ltfLookback := ltfCandles
+	if len(ltfLookback) == 0 {
+		ltfLookback = htfLookback
+	} else {
+		// برش دیتای LTF تا با بازه زمانی HTF همخوانی تقریبی داشته باشد
+		// (فرض بر این است که LTF مثلاً M1 است و 15 برابر HTF است)
+		multiplier := 15
+		ltfLookbackLen := lookbackCount * multiplier
+		if len(ltfLookback) > ltfLookbackLen {
+			ltfLookback = ltfLookback[len(ltfLookback)-ltfLookbackLen:]
+		}
+	}
+
+	tpRange := makeRange(50.0, 100.0, 5)
+	slRange := makeRange(10.0, 50.0, 5)
+
+	groups := CalculateBestCombinationsByGroup(
+		htfLookback,
+		ltfLookback,
+		1000.0, // سرمایه فرضی برای محاسبه Score
+		10.0,   // لوریج فرضی
+		tpRange,
+		slRange,
+	)
+
+	PrintLiveOptimizationResults(groups)
+
+	fmt.Printf("\n---------------------- Backtest ----------------------- \n")
+	results := CalculateBestCombinationsByGroup(
+		htfLookback,
+		ltfLookback,
+		1000.0,
+		10,
+		tpRange,
+		slRange,
+	)
+	printGroupCombinations(results)
+
+	// اطمینان از وجود دیتای کافی (lookback + 1 کندل بسته شده + 1 کندل در حال تشکیل)
+	if len(htfCandles) < lookbackCount+2 {
+		fmt.Printf("line 912\n")
+		return res
+	}
+
+	// ۱. انتخاب آخرین کندل بسته شده (ایندکس len-2).
+	// هرگز از len-1 استفاده نکنید چون کندل فعلی هنوز بسته نشده و Repaint می‌شود!
+	lastClosedCandle := htfCandles[len(htfCandles)-2]
+
+	// ۲. بررسی شرایط ورود (دقیقاً منطبق بر منطق بک‌تست)
+	if !lastClosedCandle.IsMarubozu() {
+		fmt.Printf("line 922\n")
+		return res
+	}
+
+	var tradeType string
+	var signal indicators.Signal
+	if lastClosedCandle.IsGreen() {
+		tradeType = "SELL" // منطق بک‌تست شما: کندل سبز HTF -> پوزیشن Short
+		signal = indicators.SellSignal
+	} else if lastClosedCandle.IsRed() {
+		tradeType = "BUY" // منطق بک‌تست شما: کندل قرمز HTF -> پوزیشن Long
+		signal = indicators.BuySignal
+	} else {
+		fmt.Printf("line 935\n")
+		return res
+	}
+
+	// ۳. تشخیص گروه بدنه کندل سیگنال
+	groupIdx := GetBodyGroupIndex(&lastClosedCandle)
+	if groupIdx < 0 {
+		fmt.Printf("line 942 \n")
+		return res // کندل ضعیف‌تر از 0.2% است
+	}
+	res.Group = groupIdx
+
+	// ۶. استخراج بهترین TP/SL برای گروه کندل فعلی
+	bestGroup := groups.Groups[groupIdx]
+	if bestGroup.BestTP > 0 && bestGroup.BestSL > 0 {
+		res.Trade = tradeType
+		res.Signal = signal
+		res.TP = bestGroup.BestTP
+		res.SL = bestGroup.BestSL
+	} else {
+		// اگر برای این گروه دیتای کافی نبود، از میانگین کل استفاده کن (Fallback)
+		// یا کلاً سیگنال نده. اینجا سیگنال نمی‌دهیم تا ایمن باشد.
+		res.Trade = "NONE"
+		res.Signal = indicators.NoneSignal
+	}
+
+	return res
+}
+
+func makeRange(from, to, step float64) []float64 {
+
+	var result []float64
+	for i := from; i <= to; i += step {
+		result = append(result, i)
+	}
+	return result
 }

@@ -29,8 +29,9 @@ type OrderResult struct {
 }
 
 type SocketResult struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
+	Type      string          `json:"type"`
+	Timeframe string          `json:"timeframe"`
+	Data      json.RawMessage `json:"data"`
 }
 
 func NewMT5Client(conn net.Conn) *MTClient {
