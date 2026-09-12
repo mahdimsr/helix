@@ -6,6 +6,7 @@ import (
 	"helix/models"
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"time"
 )
@@ -66,9 +67,31 @@ func (c *MTClient) ReadResponse() (string, error) {
 func (socketResult SocketResult) fetchDataAsCandle() []models.Candle {
 
 	var candles []models.Candle
+
 	if err := json.Unmarshal(socketResult.Data, &candles); err != nil {
 		log.Println("JSON parse error:", err)
+		return nil
 	}
+
+	// ۱. اصلاح و نرمال‌سازی زمان و ساخت ReadableTime
+	for i := range candles {
+		t := candles[i].Time
+
+		// نرمال‌سازی: اگر زمان به میلی‌ثانیه بود، به ثانیه تبدیل کن
+		// (عدد 32503680000 معادل سال 3000 میلادی به ثانیه است)
+		if t > 32503680000 {
+			t = t / 1000
+		}
+
+		candles[i].Time = t
+		// تبدیل Unix Timestamp به time.Time با منطقه زمانی UTC
+		candles[i].ReadableTime = time.Unix(t, 0).UTC()
+	}
+
+	// ۲. مرتب‌سازی قطعی کندل‌ها از قدیم به جدید (Ascending Order)
+	sort.Slice(candles, func(i, j int) bool {
+		return candles[i].Time < candles[j].Time
+	})
 
 	return candles
 }

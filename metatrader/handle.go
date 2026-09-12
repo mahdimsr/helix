@@ -36,10 +36,10 @@ func Handle(conn net.Conn) {
 	}(conn)
 	client := NewMT5Client(conn)
 
-	ticker := time.NewTicker(15 * time.Minute)
+	ticker := time.NewTicker(7 * time.Second)
 	defer ticker.Stop()
 
-	ticker5m := time.NewTicker(5 * time.Minute)
+	ticker5m := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	tickerSec := time.NewTicker(3 * time.Second)
@@ -118,10 +118,6 @@ func Handle(conn net.Conn) {
 				candles := result.fetchDataAsCandle()
 
 				fmt.Printf("Fetch %d candles \n", len(candles))
-
-				for i, j := 0, len(candles)-1; i < j; i, j = i+1, j-1 {
-					candles[i], candles[j] = candles[j], candles[i]
-				}
 
 				mu.Lock()
 

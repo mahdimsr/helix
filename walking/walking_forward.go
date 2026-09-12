@@ -908,6 +908,13 @@ func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, 
 
 	lastClosedCandle := htfCandles[len(htfCandles)-2]
 
+	fmt.Printf("Candle Info: O: %.2f H: %.2f C: %.2f L: %.2f Time: %s \n",
+		lastClosedCandle.Open,
+		lastClosedCandle.High,
+		lastClosedCandle.Close,
+		lastClosedCandle.Low,
+		lastClosedCandle.ReadableTime.UTC().Format("2006-01-02 15:04:05"))
+
 	if !lastClosedCandle.IsMarubozu() {
 		return res
 	}
