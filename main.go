@@ -34,27 +34,28 @@ func main() {
 
 	layout := "2006-01-02"
 
-	startTimeObj, err := time.Parse(layout, "2026-08-01")
+	startTimeObj, err := time.Parse(layout, "2026-09-09")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	endTimeObj, err := time.Parse(layout, "2026-09-05")
+	endTimeObj, err := time.Parse(layout, "2026-09-12")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	highCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-08-01", "2026-09-05")
-	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "5m", "2026-08-01", "2026-09-05")
+	highCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-08-01", "2026-09-12")
+	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "5m", "2026-08-01", "2026-09-12")
 
-	tpDollars := makeRange(1.0, 100.0, 1.0)
-	slDollars := makeRange(1.0, 50.0, 1.0)
+	tpDollars := makeRange(10.0, 100.0, 1.0)
+	slDollars := makeRange(10.0, 50.0, 1.0)
 
 	walkingForwardResults := walking.WalkForwardWithBodyGroups(
 		highCandles,
 		lowCandles,
 		startTimeObj.Unix(),
 		endTimeObj.Unix(),
+		1,
 		3,
 		1000,
 		10,
