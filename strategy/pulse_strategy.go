@@ -23,7 +23,7 @@ func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, 
 	fmt.Printf("LAST CANDLE ==> Time: %s | close: %.2f | middle: %.2f | upper: %.2f | lower: %.2f \n",
 		openTime, lastCandle.Close, lastBollinger.Middle, lastBollinger.Upper, lastBollinger.Lower)
 
-	if lastCandle.BodyPercentage() < 0.2 {
+	if lastCandle.BodyPercentage() < 0.1 {
 		return indicators.NoneSignal, 2, 2
 	}
 
@@ -33,16 +33,24 @@ func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, 
 
 	//tpPct := dynamicTPPercent(candles, signalIndex, 100, 1)
 	tpPct := 0.1
+	slPercentage := 0.5
+	if lastCandle.BodyPercentage() >= 0.1 && lastCandle.BodyPercentage() < 0.2 {
+		tpPct = 1
+	}
+
 	if lastCandle.BodyPercentage() >= 0.2 && lastCandle.BodyPercentage() < 0.3 {
-		tpPct = 0.6
+		tpPct = 0.4
+		slPercentage = 0.3
 	}
 
 	if lastCandle.BodyPercentage() >= 0.3 && lastCandle.BodyPercentage() < 0.5 {
 		tpPct = 0.2
+		slPercentage = 0.3
 	}
 
 	if lastCandle.BodyPercentage() >= 0.5 {
 		tpPct = 0.1
+		slPercentage = 0.2
 	}
 
 	distPrice := lastCandle.Body() * tpPct
@@ -50,11 +58,11 @@ func PulseStrategy(candles []models.Candle) (signal indicators.Signal, tpPrice, 
 
 	if lastCandle.IsGreen() && inUpperLand(lastBollinger, lastCandle) {
 		tpPrice = entry - distPrice
-		slPrice = calculateSL(entry, "SELL", 0.5)
+		slPrice = calculateSL(entry, "SELL", slPercentage)
 		signal = indicators.SellSignal
 	} else if lastCandle.IsRed() && inLowerLand(lastBollinger, lastCandle) {
 		tpPrice = entry + distPrice
-		slPrice = calculateSL(entry, "BUY", 0.5)
+		slPrice = calculateSL(entry, "BUY", slPercentage)
 		signal = indicators.BuySignal
 	}
 
