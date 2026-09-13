@@ -865,31 +865,40 @@ type LiveSignalResult struct {
 
 // GenerateLiveSignal منطق بک‌تست را برای لحظه فعلی شبیه‌سازی می‌کند
 func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, config LiveConfig) LiveSignalResult {
-	res := LiveSignalResult{Signal: "NONE", TP: 0, SL: 0, Group: -1}
+	// مقدار پیش‌فرض: بدون سیگنال
+	res := LiveSignalResult{Signal: indicators.NoneSignal, Trade: "NONE", TP: 0, SL: 0, Group: -1}
 
 	lookbackCount := config.CalculateLookbackCount()
 
-	fmt.Printf("\n🔍 بهینه‌سازی با %d کندل (%d روز)...\n", lookbackCount, config.LookbackDays)
+	// ۱. ✅ بررسی اولیه تعداد کندل‌ها (Guard Clause)
+	if len(htfCandles) < lookbackCount+2 {
+		fmt.Printf("⚠️ دیتای کافی نیست. نیاز به %d کندل داریم، اما فقط %d کندل موجود است.\n", lookbackCount+2, len(htfCandles))
+		return res
+	}
 
+	// ۲. ✅ برش صحیح آرایه برای حذف Look-Ahead Bias
+	// ما فقط به داده‌های گذشته نگاه می‌کنیم. ایندکس len-2 یعنی آخرین کندل بسته شده.
 	lookbackEnd := len(htfCandles) - 2
 	lookbackStart := lookbackEnd - lookbackCount
 	if lookbackStart < 0 {
 		lookbackStart = 0
 	}
 
+	// برش واقعی آرایه‌ها (این خط حیاتی است)
 	htfLookback := htfCandles[lookbackStart:lookbackEnd]
 
 	ltfLookback := ltfCandles
 	if len(ltfLookback) == 0 {
 		ltfLookback = htfLookback
 	} else {
-		multiplier := config.TimeframeMinute // مثلاً 15 برای M15
-		ltfLookbackLen := lookbackCount * multiplier
-		if len(ltfLookback) > ltfLookbackLen {
-			ltfLookback = ltfLookback[len(ltfLookback)-ltfLookbackLen:]
-		}
+		// اختیاری: اگر می‌خواهید LTF هم دقیقاً به اندازه بازه زمانی HTF برش بخورد
+		// (فرض بر این است که ltfCandles از قبل توسط fetchDataAsCandle مرتب شده است)
 	}
 
+	fmt.Printf("\n🔍 بهینه‌سازی روی %d کندل گذشته (معادل %d روز)...\n", len(htfLookback), config.LookbackDays)
+
+	// ۳. ✅ حذف فراخوانی WalkForwardWithBodyGroups (چون سنگین و اضافی بود)
+	// ما فقط نیاز داریم بهترین ترکیب را برای همین بازه Lookback پیدا کنیم.
 	groups := CalculateBestCombinationsByGroup(
 		htfLookback,
 		ltfLookback,
@@ -899,16 +908,13 @@ func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, 
 		config.SLRange,
 	)
 
+	// چاپ جدول زیبای بهینه‌سازی
 	PrintLiveOptimizationResults(groups)
 
-	if len(htfCandles) < lookbackCount+2 {
-		fmt.Printf("⚠️ Not enough candles. Need %d, have %d\n", lookbackCount+2, len(htfCandles))
-		return res
-	}
-
+	// ۴. ✅ ارزیابی آخرین کندل بسته شده برای سیگنال‌دهی
 	lastClosedCandle := htfCandles[len(htfCandles)-2]
 
-	fmt.Printf("Candle Info: O: %.2f H: %.2f C: %.2f L: %.2f Time: %s \n",
+	fmt.Printf("\n🕯️ بررسی کندل سیگنال: O: %.2f | H: %.2f | C: %.2f | L: %.2f | Time: %s \n",
 		lastClosedCandle.Open,
 		lastClosedCandle.High,
 		lastClosedCandle.Close,
@@ -916,6 +922,7 @@ func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, 
 		lastClosedCandle.ReadableTime.UTC().Format("2006-01-02 15:04:05"))
 
 	if !lastClosedCandle.IsMarubozu() {
+		fmt.Println("⏸️ کندل Marubozu نیست. سیگنالی تولید نشد.")
 		return res
 	}
 
@@ -933,10 +940,12 @@ func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, 
 
 	groupIdx := GetBodyGroupIndex(&lastClosedCandle)
 	if groupIdx < 0 {
+		fmt.Println("⏸️ درصد بدنه کندل کمتر از 0.2% است. سیگنالی تولید نشد.")
 		return res
 	}
 	res.Group = groupIdx
 
+	// ۵. ✅ استخراج مقادیر بهینه برای گروه کندل فعلی
 	bestGroup := groups.Groups[groupIdx]
 	if bestGroup.BestTP > 0 && bestGroup.BestSL > 0 {
 		res.Signal = signal
@@ -946,16 +955,16 @@ func GenerateLiveSignal(htfCandles []models.Candle, ltfCandles []models.Candle, 
 
 		fmt.Printf("\n🎯 کندل فعلی در گروه %d (%.1f%%-%.1f%%) قرار دارد\n",
 			groupIdx, bestGroup.MinPercent, bestGroup.MaxPercent)
-
-		fmt.Printf("✅ مقادیر انتخاب شده: TP=$%.0f | SL=$%.0f\n", bestGroup.BestTP, bestGroup.BestSL)
-
+		fmt.Printf("✅ مقادیر انتخاب شده برای ترید: TP=$%.0f | SL=$%.0f\n", bestGroup.BestTP, bestGroup.BestSL)
 	} else {
+		fmt.Println("⚠️ ترکیب معتبری برای این گروه بدنه پیدا نشد.")
 		res.Signal = indicators.NoneSignal
 		res.Trade = "NONE"
 	}
 
 	return res
 }
+
 func makeRange(from, to, step float64) []float64 {
 
 	var result []float64
