@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"helix/database"
+	"helix/indicators"
 	"helix/models"
 	"helix/notification"
 	"helix/walking"
@@ -392,12 +393,24 @@ func evaluateStrategy(symbol string, htf []models.Candle, ltf []models.Candle, c
 	fmt.Printf("🤖 Live Eval -> Signal: %s | TP: $%.0f | SL: $%.0f | BodyGroup: %d \n",
 		liveSignal.Signal, liveSignal.TP, liveSignal.SL, liveSignal.Group)
 
-	if liveSignal.Signal != "NONE" {
+	if liveSignal.Signal != indicators.NoneSignal {
 		lastClosedCandle := htf[len(htf)-2]
 		amount := 0.2
+		var tpPrice float64
+		var slPrice float64
+		if liveSignal.Signal == indicators.BuySignal {
+			tpPrice = lastClosedCandle.Close + liveSignal.TP
+			slPrice = lastClosedCandle.Close - liveSignal.SL
+		} else {
+			tpPrice = lastClosedCandle.Close - liveSignal.TP
+			slPrice = lastClosedCandle.Close + liveSignal.SL
+		}
+
+		fmt.Printf("🤖 Live Cal -> Signal: %s | TP: $%.0f | SL: $%.0f | BodyGroup: %d \n",
+			liveSignal.Signal, tpPrice, slPrice, liveSignal.Group)
 
 		fmt.Printf("🚀 Executing Trade: %s at price %.2f\n", liveSignal.Signal, lastClosedCandle.Close)
-		placeOrder(client, symbol, liveSignal.Trade, amount, lastClosedCandle.Close, liveSignal.TP, liveSignal.SL)
+		placeOrder(client, symbol, liveSignal.Trade, amount, lastClosedCandle.Close, tpPrice, slPrice)
 	} else {
 		fmt.Println("⏸️ No valid signal detected based on Walk-Forward logic.")
 	}
