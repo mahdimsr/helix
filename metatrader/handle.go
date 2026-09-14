@@ -36,10 +36,10 @@ func Handle(conn net.Conn) {
 	}(conn)
 	client := NewMT5Client(conn)
 
-	ticker := time.NewTicker(7 * time.Second)
+	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
-	ticker5m := time.NewTicker(5 * time.Second)
+	ticker5m := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	tickerSec := time.NewTicker(3 * time.Second)
