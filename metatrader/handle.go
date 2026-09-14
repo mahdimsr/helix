@@ -47,7 +47,7 @@ func Handle(conn net.Conn) {
 
 	_ = godotenv.Load()
 
-	symbol := "BTCUSD.ecn"
+	symbol := "BTCUSD"
 	timeframe := "PERIOD_M15"
 	candlesCount := 2000
 

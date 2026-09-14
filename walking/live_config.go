@@ -15,8 +15,8 @@ func DefaultLiveConfig() LiveConfig {
 	return LiveConfig{
 		LookbackDays:    3,  // 30 روز گذشته
 		TimeframeMinute: 15, // تایم‌فریم M15
-		TPRange:         makeRange(10.0, 100.0, 1),
-		SLRange:         makeRange(10.0, 50.0, 1),
+		TPRange:         makeRange(50.0, 200.0, 1),
+		SLRange:         makeRange(20.0, 80.0, 1),
 		InitialCapital:  1000.0,
 		Leverage:        10.0,
 	}
