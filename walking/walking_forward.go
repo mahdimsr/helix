@@ -22,6 +22,10 @@ type WalkForwardTrade struct {
 	WindowEnd        int64   `json:"windowEnd"`
 	EntryBodyPercent float64 `json:"entryBodyPercent"` // درصد بدنه کندل ورود
 	EntryBodyGroup   int     `json:"entryBodyGroup"`   // ایندکس گروه (0 تا 4)
+
+	CapitalBefore float64 `json:"capitalBefore"` // سرمایه قبل از ورود به این ترید
+	CapitalAfter  float64 `json:"capitalAfter"`  // سرمایه بعد از خروج از این ترید
+	ROI           float64 `json:"roi"`
 }
 
 type WalkForwardResult struct {
@@ -224,7 +228,18 @@ func executeTradesWithFixedTPSL(
 			pnl = (entryPrice - exitPrice) * quantity
 		}
 
+		// 🆕 ذخیره سرمایه قبل از آپدیت
+		capitalBefore := currentCapital
+
 		currentCapital += pnl
+		capitalAfter := currentCapital
+
+		// 🆕 محاسبه ROI
+		roi := 0.0
+		if capitalBefore > 0 {
+			roi = (pnl / capitalBefore) * 100
+		}
+
 		lastCloseTime = exitTime
 
 		trades = append(trades, WalkForwardTrade{
@@ -237,6 +252,10 @@ func executeTradesWithFixedTPSL(
 			SL:         slUSD,
 			PnL:        pnl,
 			Status:     status,
+			// 🆕 اضافه کردن فیلدهای جدید
+			CapitalBefore: capitalBefore,
+			CapitalAfter:  capitalAfter,
+			ROI:           roi,
 		})
 	}
 
@@ -379,6 +398,7 @@ func WalkForward(
 
 	return result
 }
+
 func PrintWalkForwardTrades(result *WalkForwardResult) {
 	if len(result.Trades) == 0 {
 		fmt.Println("هیچ تریدی ثبت نشده است.")
@@ -386,30 +406,29 @@ func PrintWalkForwardTrades(result *WalkForwardResult) {
 	}
 
 	fmt.Printf("\n📜 لیست تریدهای پیمایش پنجره‌ای (%d ترید):\n", len(result.Trades))
-	// 🆕 هدر جدول با ستون‌های Body% و Group
-	fmt.Println("┌─────┬────────────────────┬────────┬──────────┬──────────┬────────┬───────┬────────┬────────┬──────────┬────────────┐")
-	fmt.Println("│  #  │       Time         │  Type  │  Entry   │  Exit    │ Body%  │ Group │   TP   │   SL   │   PnL    │   Status   │")
-	fmt.Println("├─────┼────────────────────┼────────┼──────────┼──────────┼────────┼───────┼────────┼────────┼──────────┼────────────┤")
 
-	for i, t := range result.Trades {
+	// 🆕 هدر جدول با ستون‌های جدید
+	fmt.Println("┌────────────────────┬────────┬──────────┬──────────┬────────┬────────┬──────────┬─────────────┬─────────────┬───────┐")
+	fmt.Println("│       Time         │  Type  │  Entry   │   Exit   │   TP   │   SL   │   PnL    │  Cap Before │  Cap After  │  ROI  │")
+	fmt.Println("├────────────────────┼────────┼──────────┼──────────┼────────┼────────┼──────────┼─────────────┼─────────────┼───────┤")
+
+	for _, t := range result.Trades {
 		timeStr := time.Unix(t.EntryTime, 0).UTC().Format("2006-01-02 15:04")
 
-		// 🆕 فرمت چاپ جدید شامل درصد بدنه و گروه
-		fmt.Printf("│ %3d │ %s │ %-6s │ %8.2f | %8.2f │ %6.2f%% │   %d   │ $%5.0f │ $%4.0f │ $%7.2f │ %-10s │\n",
-			i+1,
+		fmt.Printf("│ %s │ %-6s │ %8.2f │ %8.2f │ %6.2f%% │ $%4.0f │ $%7.2f │ $%10.2f │ $%10.2f │ %5.2f%% │\n",
 			timeStr,
 			t.Type,
 			t.EntryPrice,
 			t.ExitPrice,
-			t.EntryBodyPercent, // نمایش درصد بدنه
-			t.EntryBodyGroup,   // نمایش شماره گروه
 			t.TP,
 			t.SL,
 			t.PnL,
-			t.Status,
+			t.CapitalBefore, // 🆕 سرمایه قبل
+			t.CapitalAfter,  // 🆕 سرمایه بعد
+			t.ROI,           // 🆕 ROI به درصد
 		)
 	}
-	fmt.Println("└─────┴────────────────────┴────────┴──────────┴──────────┴────────┴───────┴────────┴────────┴──────────┴────────────┘")
+	fmt.Println("├────────────────────┼────────┼──────────┼──────────┼────────┼────────┼──────────┼─────────────┼─────────────┼───────┤")
 }
 
 func NormalizeTimestamp(ts int64) int64 {
@@ -824,7 +843,19 @@ func executeTradesWithBodyGroups(
 			pnl = (entryPrice - exitPrice) * quantity
 		}
 
+		// 🆕 ذخیره سرمایه قبل از آپدیت
+		capitalBefore := currentCapital
+
+		// آپدیت سرمایه
 		currentCapital += pnl
+		capitalAfter := currentCapital
+
+		// 🆕 محاسبه ROI (سود/ضرر به درصد)
+		roi := 0.0
+		if capitalBefore > 0 {
+			roi = (pnl / capitalBefore) * 100
+		}
+
 		lastCloseTime = exitTime
 		bodyPercent := htf.BodyPercentage()
 		bodyGroup := GetBodyGroupIndex(&htf)
@@ -841,6 +872,9 @@ func executeTradesWithBodyGroups(
 			Status:           status,
 			EntryBodyPercent: bodyPercent,
 			EntryBodyGroup:   bodyGroup,
+			CapitalBefore:    capitalBefore,
+			CapitalAfter:     capitalAfter,
+			ROI:              roi,
 		})
 	}
 
