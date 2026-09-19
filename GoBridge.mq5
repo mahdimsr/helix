@@ -296,9 +296,16 @@ void UpdateOrderTpSl(string symbol, ulong ticket, double tp, double sl)
     req.sl = sl;
     req.tp = tp;
     
-    bool ok = OrderSend(req, res);
-    
-    Print("update order result is: " + ok + "\n");
+   bool ok = OrderSend(req, res);
+    if (!ok || res.retcode != TRADE_RETCODE_DONE) {
+        Print("[UpdateOrderTpSl] FAILED | ticket=", ticket,
+              " | retcode=", res.retcode,
+              " | comment=", res.comment,
+              " | sl=", sl, " tp=", tp);
+    } else {
+        Print("[UpdateOrderTpSl] OK | ticket=", ticket,
+              " | sl=", sl, " tp=", tp);
+    }
     
     string envelope = StringFormat(
       "{\"type\":\"UPDATE_ORDER\",\"data\":{\"success\":%s,\"ticket\":%I64d,\"retcode\":%d,\"price\":%.5f,\"tp\":%.5f,\"sl\":%.5f,\"comment\":\"%s\"}} \n",
@@ -323,10 +330,16 @@ void HandleInquiry(ulong ticket)
     double entry_price = 0;
     double tp = 0;
     double sl = 0;
+    double profit = 0;
+    double swap = 0;
+    double commission = 0;
+    double volume = 0;
+    string side = "UNKNOWN"; // <--- متغیر جدید برای ذخیره BUY یا SELL
     string comment_info = "Not Found";
     
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+    string currency = AccountInfoString(ACCOUNT_CURRENCY);
 
     Print("🔍 Inquiry started for ticket: ", ticket);
     
@@ -336,20 +349,24 @@ void HandleInquiry(ulong ticket)
         found = true;
         status_code = 1000; // 1000 = OPEN
         current_price = PositionGetDouble(POSITION_PRICE_CURRENT);
+        entry_price = PositionGetDouble(POSITION_PRICE_OPEN);
         tp = PositionGetDouble(POSITION_TP);
         sl = PositionGetDouble(POSITION_SL);
-        entry_price = PositionGetDouble(POSITION_PRICE_OPEN);
-
+        volume = PositionGetDouble(POSITION_VOLUME);
+        
+        profit = PositionGetDouble(POSITION_PROFIT);
+        swap = PositionGetDouble(POSITION_SWAP);
+        commission = PositionGetDouble(POSITION_COMMISSION);
 
         string symbol = PositionGetString(POSITION_SYMBOL);
-        string type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "BUY" : "SELL";
-        double volume = PositionGetDouble(POSITION_VOLUME);
-        double profit = PositionGetDouble(POSITION_PROFIT);
         
-        comment_info = StringFormat("STATUS:OPEN | SYM:%s | TYPE:%s | VOL:%.2f | PRF:%.2f", 
-                                    symbol, type, volume, profit);
+        // <--- تعیین side برای پوزیشن باز
+        side = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+        
+        comment_info = StringFormat("STATUS:OPEN | SYM:%s | SIDE:%s | VOL:%.2f | PRF:%.2f", 
+                                    symbol, side, volume, profit);
                                     
-        Print("✅ Found as OPEN Position");
+        Print("✅ Found as OPEN Position | Side: ", side, " | Profit: ", profit);
     }
     else
     {
@@ -358,54 +375,54 @@ void HandleInquiry(ulong ticket)
         
         bool foundInHistory = false;
         
-        // الف) جستجو در Deals بر اساس POSITION_ID (برای پوزیشن‌های بسته شده)
+        // الف) جستجو در Deals بر اساس POSITION_ID
         int totalDeals = HistoryDealsTotal();
         for(int i = totalDeals - 1; i >= 0; i--)
         {
             ulong dealTicket = HistoryDealGetTicket(i);
             if(dealTicket == 0) continue;
             
-            // چک می‌کنیم آیا این Deal متعلق به Position مورد نظر ما است
             ulong positionId = (ulong)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
             
             if(positionId == ticket)
             {
-                found = true;
-                foundInHistory = true;
-                status_code = 2000; // CLOSED
-                
-                current_price = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
-                tp = 0; 
-                sl = 0;
-                
-                string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
-                ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
                 ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
                 
-                string type = "UNKNOWN";
-                if(dealType == DEAL_TYPE_BUY) type = "BUY";
-                else if(dealType == DEAL_TYPE_SELL) type = "SELL";
-                
-                double volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
-                double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
-                double swap = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
-                double commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
-                string deal_comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
-                
-                // تشخیص جهت معامله (باز شدن یا بسته شدن)
-                string entryInfo = "";
-                if(dealEntry == DEAL_ENTRY_IN) entryInfo = "[OPEN]";
-                else if(dealEntry == DEAL_ENTRY_OUT) entryInfo = "[CLOSE]";
-                else if(dealEntry == DEAL_ENTRY_INOUT) entryInfo = "[REVERSE]";
-                else if(dealEntry == DEAL_ENTRY_OUT_BY) entryInfo = "[CLOSE_BY]";
+                // ما به دنبال دیل بسته شدن (OUT) هستیم که سود نهایی در آن ثبت می‌شود
+                if(dealEntry == DEAL_ENTRY_OUT || dealEntry == DEAL_ENTRY_OUT_BY || dealEntry == DEAL_ENTRY_INOUT)
+                {
+                    found = true;
+                    foundInHistory = true;
+                    status_code = 2000; // CLOSED
+                    
+                    current_price = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+                    entry_price = 0; 
+                    tp = 0; 
+                    sl = 0;
+                    
+                    profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+                    swap = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+                    commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+                    volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+                    
+                    string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+                    ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+                    string deal_comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+                    
+                    // <--- تعیین side برای دیل تاریخچه
+                    if(dealType == DEAL_TYPE_BUY) side = "BUY";
+                    else if(dealType == DEAL_TYPE_SELL) side = "SELL";
+                    
+                    string entryInfo = (dealEntry == DEAL_ENTRY_OUT) ? "[CLOSE]" : "[CLOSE_BY/REVERSE]";
 
-                comment_info = StringFormat(
-                    "STATUS:CLOSED %s | SYM:%s | TYPE:%s | VOL:%.2f | PRF:%.2f | SWP:%.2f | COM:%.2f | REASON:%s", 
-                    entryInfo, symbol, type, volume, profit, swap, commission, CleanJsonString(deal_comment)
-                );
-                
-                Print("✅ Found in History Deal #", dealTicket, " | Position ID: ", positionId, " | Comment: ", deal_comment);
-                break; // اولین Deal مربوط به این پوزیشن را پیدا کردیم، حلقه را بشکن
+                    comment_info = StringFormat(
+                        "STATUS:CLOSED %s | SYM:%s | SIDE:%s | VOL:%.2f | PRF:%.2f | SWP:%.2f | COM:%.2f", 
+                        entryInfo, symbol, side, volume, profit, swap, commission
+                    );
+                    
+                    Print("✅ Found in History Deal #", dealTicket, " | Side: ", side, " | Final Profit: ", profit);
+                    break; 
+                }
             }
         }
         
@@ -421,54 +438,69 @@ void HandleInquiry(ulong ticket)
                 current_price = HistoryOrderGetDouble(ticket, ORDER_PRICE_CURRENT);
                 tp = HistoryOrderGetDouble(ticket, ORDER_TP);
                 sl = HistoryOrderGetDouble(ticket, ORDER_SL);
+                volume = HistoryOrderGetDouble(ticket, ORDER_VOLUME_INITIAL);
                 
                 string symbol = HistoryOrderGetString(ticket, ORDER_SYMBOL);
-                double volume = HistoryOrderGetDouble(ticket, ORDER_VOLUME_INITIAL);
                 string order_comment = HistoryOrderGetString(ticket, ORDER_COMMENT);
-                
                 ENUM_ORDER_STATE state = (ENUM_ORDER_STATE)HistoryOrderGetInteger(ticket, ORDER_STATE);
                 string statusStr = EnumToString(state);
                 
-                comment_info = StringFormat(
-                    "STATUS:%s | SYM:%s | VOL:%.2f | REASON:%s", 
-                    statusStr, symbol, volume, CleanJsonString(order_comment)
-                );
+                // <--- تعیین side برای اوردر تاریخچه
+                ENUM_ORDER_TYPE orderType = (ENUM_ORDER_TYPE)HistoryOrderGetInteger(ticket, ORDER_TYPE);
+                if(orderType == ORDER_TYPE_BUY || orderType == ORDER_TYPE_BUY_LIMIT || orderType == ORDER_TYPE_BUY_STOP) side = "BUY";
+                else if(orderType == ORDER_TYPE_SELL || orderType == ORDER_TYPE_SELL_LIMIT || orderType == ORDER_TYPE_SELL_STOP) side = "SELL";
                 
-                Print("✅ Found in History Order #", ticket, " | State: ", statusStr);
+                profit = 0; swap = 0; commission = 0; 
+                
+                comment_info = StringFormat("STATUS:%s | SYM:%s | SIDE:%s | VOL:%.2f | REASON:%s", 
+                                            statusStr, symbol, side, volume, CleanJsonString(order_comment));
+                
+                Print("✅ Found in History Order #", ticket, " | Side: ", side, " | State: ", statusStr);
             }
         }
-        
-        Print("🔍 Search complete. Found in history: ", foundInHistory, " | Final found status: ", found);
     }
 
-    // ساخت JSON نهایی
+    // ساخت JSON نهایی با اضافه شدن فیلد "side"
     string json = StringFormat(
         "{\"type\":\"INQUIRY\",\"data\":{" +
         "\"success\":%s," +
         "\"retcode\":%d," +
+        "\"side\":\"%s\"," +          // <--- فیلد side اضافه شد
         "\"price\":%.5f," +
         "\"entry\":%.5f," +
         "\"tp\":%.5f," +
         "\"sl\":%.5f," +
+        "\"volume\":%.2f," +
+        "\"profit\":%.2f," +
+        "\"swap\":%.2f," +
+        "\"commission\":%.2f," +
+        "\"currency\":\"%s\"," +
         "\"ticket\":%I64u," +
-        "\"balance\":%0.2f," +
-        "\"equity\":%0.2f," +
+        "\"balance\":%.2f," +
+        "\"equity\":%.2f," +
         "\"comment\":\"%s\"" +
         "}}\n",
         found ? "true" : "false",
         status_code,
+        side,                         // <--- مقدار side به StringFormat پاس داده شد
         current_price,
         entry_price,
         tp,
         sl,
+        volume,
+        profit,
+        swap,
+        commission,
+        currency,
         ticket,
         balance,
         equity,
-        comment_info
+        CleanJsonString(comment_info)
     );
 
     SendLargeString(json);
 }
+
 
 void ClosePositionByTicket(ulong ticket)
 {

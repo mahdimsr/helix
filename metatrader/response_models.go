@@ -26,6 +26,8 @@ type OrderResult struct {
 	Equity     float64 `json:"equity"`
 	EntryPrice float64 `json:"entry"`
 	Comment    string  `json:"comment"`
+	Profit     float64 `json:"profit"`
+	Side       string  `json:"side"`
 }
 
 type SocketResult struct {
