@@ -120,8 +120,6 @@ func Handle(conn net.Conn) {
 
 				fmt.Printf("Fetch %d candles \n", len(candles))
 
-				mu.Lock()
-
 				if result.Timeframe == "M15" || result.Timeframe == "PERIOD_M15" {
 
 					m15Candles = candles
@@ -132,7 +130,6 @@ func Handle(conn net.Conn) {
 					fmt.Printf("✅ M5 Candles Updated in background. Total: %d\n", len(m5Candles))
 				}
 
-				mu.Unlock()
 			}
 
 			if result.Type == "ORDER" {
@@ -475,17 +472,18 @@ func evaluateStrategy(symbol string, htf []models.Candle, ltf []models.Candle, c
 	fmt.Printf("🤖 Live Eval -> Signal: %s | TP: $%.0f | SL: $%.0f | BodyGroup: %d \n",
 		liveSignal.Signal, liveSignal.TP, liveSignal.SL, liveSignal.Group)
 
+	lastClosedCandle := htf[len(htf)-2]
+	amount := CalculateLotSize(400, 10, lastClosedCandle.Close, 1, "BTC")
+
 	if liveSignal.Signal != indicators.NoneSignal {
-		lastClosedCandle := htf[len(htf)-2]
-		amount := 0.2
 		var tpPrice float64
 		var slPrice float64
 		if liveSignal.Signal == indicators.BuySignal {
-			tpPrice = lastClosedCandle.Close + liveSignal.TP
-			slPrice = lastClosedCandle.Close - liveSignal.SL
+			tpPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, liveSignal.TP, "BTC", "BUY")
+			slPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, liveSignal.SL, "BTC", "SELL")
 		} else {
-			tpPrice = lastClosedCandle.Close - liveSignal.TP
-			slPrice = lastClosedCandle.Close + liveSignal.SL
+			tpPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, liveSignal.TP, "BTC", "SELL")
+			slPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, liveSignal.SL, "BTC", "BUY")
 		}
 
 		fmt.Printf("🤖 Live Cal -> Signal: %s | TP: $%.0f | SL: $%.0f | BodyGroup: %d \n",
