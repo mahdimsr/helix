@@ -65,49 +65,71 @@ func main() {
 
 	walking.PrintWalkForwardTrades(walkingForwardResults)
 
-	/*results := strategy.RunBacktest(
-		highCandles,
-		lowCandles,
-		100.0, // سرمایه اولیه 1000 دلار
-		100.0, // لوریج 10
-		tpDollars,
-		slDollars,
-	)
+	/*
+
+		// statics
+			trades := walking.ExecuteTradesWithStaticTPSL(
+				highCandles,
+				lowCandles,
+				50.0, // سرمایه اولیه
+				10.0, // اهرم
+				2.0,  // TP ثابت: 9 دلار
+				5.0,  // SL ثابت: 13 دلار
+			)
+
+			// چاپ تریدها
+			walking.PrintStaticTrades(trades)
 
 
-	err = chart.GenerateInteractiveChart(results, "chart.html")
-	chartURL, err := chart.GenerateShortChartURL(results)
-	if err != nil {
-		fmt.Println("خطا در تولید نمودار:", err)
-		return
-	}
 
-	fmt.Println("\n✅ لینک نمودار تعاملی شما آماده است:")
-	//fmt.Println(chartURL)
 
-	filename := "chart_link.txt"
 
-	// تبدیل رشته به بایت و ذخیره با دسترسی خواندن/نوشتن (0644)
-	err = os.WriteFile(filename, []byte(chartURL), 0644)
-	if err != nil {
-		fmt.Println("❌ خطا در ذخیره فایل:", err)
-		return
-	}
 
-	fmt.Println("\n(این لینک را کپی کرده و در مرورگر خود باز کنید)")
 
-	time.Sleep(1 * time.Second)
 
-	topResults := results.FilterByGainThreshold(90)
+		results := strategy.RunBacktest(
+			highCandles,
+			lowCandles,
+			100.0, // سرمایه اولیه 1000 دلار
+			100.0, // لوریج 10
+			tpDollars,
+			slDollars,
+		)
 
-	err = chart.GenerateInteractiveChart(topResults, "top.html")
-	if err != nil {
-		fmt.Println("خطا در تولید نمودار:", err)
-		return
-	}
 
-	scoredResults := topResults.ScoreResults()
-	strategy.PrintScoredResults(scoredResults)*/
+		err = chart.GenerateInteractiveChart(results, "chart.html")
+		chartURL, err := chart.GenerateShortChartURL(results)
+		if err != nil {
+			fmt.Println("خطا در تولید نمودار:", err)
+			return
+		}
+
+		fmt.Println("\n✅ لینک نمودار تعاملی شما آماده است:")
+		//fmt.Println(chartURL)
+
+		filename := "chart_link.txt"
+
+		// تبدیل رشته به بایت و ذخیره با دسترسی خواندن/نوشتن (0644)
+		err = os.WriteFile(filename, []byte(chartURL), 0644)
+		if err != nil {
+			fmt.Println("❌ خطا در ذخیره فایل:", err)
+			return
+		}
+
+		fmt.Println("\n(این لینک را کپی کرده و در مرورگر خود باز کنید)")
+
+		time.Sleep(1 * time.Second)
+
+		topResults := results.FilterByGainThreshold(90)
+
+		err = chart.GenerateInteractiveChart(topResults, "top.html")
+		if err != nil {
+			fmt.Println("خطا در تولید نمودار:", err)
+			return
+		}
+
+		scoredResults := topResults.ScoreResults()
+		strategy.PrintScoredResults(scoredResults)*/
 
 	/*fmt.Println("--- ماتریس سود خالص (سطرها: TP / ستون‌ها: SL) ---")
 

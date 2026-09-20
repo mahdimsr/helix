@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"helix/models"
 	"helix/strategy"
+	"math"
 	"sort"
 	"time"
 )
@@ -881,4 +882,244 @@ func executeTradesWithBodyGroups(
 	}
 
 	return trades
+}
+
+// ExecuteTradesWithStaticTPSL اجرای ترید با TP/SL ثابت (بدون پنجره و بهینه‌سازی)
+func ExecuteTradesWithStaticTPSL(
+	htfCandles []models.Candle,
+	ltfCandles []models.Candle,
+	initialCapital float64,
+	leverage float64,
+	tpUSD float64, // مقدار ثابت سود به دلار
+	slUSD float64, // مقدار ثابت ضرر به دلار
+) []WalkForwardTrade {
+
+	// نرمال‌سازی زمان‌ها
+	htfCandles = NormalizeCandleTimes(htfCandles)
+	ltfCandles = NormalizeCandleTimes(ltfCandles)
+
+	// مرتب‌سازی کندل‌ها
+	sort.Slice(htfCandles, func(i, j int) bool {
+		return htfCandles[i].Time < htfCandles[j].Time
+	})
+	sort.Slice(ltfCandles, func(i, j int) bool {
+		return ltfCandles[i].Time < ltfCandles[j].Time
+	})
+
+	var trades []WalkForwardTrade
+	currentCapital := initialCapital
+	var lastCloseTime int64 = 0
+
+	fmt.Printf("\n🚀 شروع اجرای ترید با TP=$%.2f, SL=$%.2f\n", tpUSD, slUSD)
+	fmt.Printf("   سرمایه اولیه: $%.2f | اهرم: %.0fx\n", initialCapital, leverage)
+	fmt.Println("─────────────────────────────────────────────────────────")
+
+	for _, htf := range htfCandles {
+		if currentCapital <= 0 {
+			fmt.Println("⚠️ سرمایه صفر شد. ترید متوقف شد.")
+			break
+		}
+
+		// جلوگیری از همپوشانی تریدها
+		if htf.Time < lastCloseTime {
+			continue
+		}
+
+		// بررسی شرط ورود
+		if !htf.IsMarubozu() {
+			continue
+		}
+
+		// تعیین جهت معامله
+		var tradeType string
+		if htf.IsGreen() {
+			tradeType = "Short"
+		} else if htf.IsRed() {
+			tradeType = "Long"
+		} else {
+			continue
+		}
+
+		// تشخیص گروه Body کندل
+		groupIdx := GetBodyGroupIndex(&htf)
+		if groupIdx < 0 {
+			continue // کمتر از 0.2%، وارد معامله نمی‌شود
+		}
+
+		// قیمت ورود
+		entryPrice := htf.Close
+		if entryPrice == 0 {
+			continue
+		}
+		entryTime := htf.Time
+
+		// محاسبه حجم و فاصله قیمتی TP/SL
+		quantity := (currentCapital * leverage) / entryPrice
+		priceDistTP := tpUSD / quantity
+		priceDistSL := slUSD / quantity
+
+		var tpPrice, slPrice float64
+		if tradeType == "Long" {
+			tpPrice = entryPrice + priceDistTP
+			slPrice = entryPrice - priceDistSL
+		} else { // Short
+			tpPrice = entryPrice - priceDistTP
+			slPrice = entryPrice + priceDistSL
+		}
+
+		// فیلتر کردن کندل‌های LTF برای بررسی خروج
+		ltfForTrade := filterLTFCandlesForTrading(ltfCandles, entryTime, math.MaxInt64)
+
+		var status string
+		var exitPrice float64
+		var exitTime int64
+
+		// شبیه‌سازی حرکت قیمت در تایم‌فریم پایین
+		for _, ltf := range ltfForTrade {
+			hitTP := false
+			hitSL := false
+
+			if tradeType == "Long" {
+				if ltf.High >= tpPrice {
+					hitTP = true
+				}
+				if ltf.Low <= slPrice {
+					hitSL = true
+				}
+			} else { // Short
+				if ltf.Low <= tpPrice {
+					hitTP = true
+				}
+				if ltf.High >= slPrice {
+					hitSL = true
+				}
+			}
+
+			// بررسی برخورد با TP یا SL
+			if hitTP && hitSL {
+				status = "SL" // اولویت با SL (محافظه‌کارانه)
+				exitPrice = slPrice
+				exitTime = ltf.Time
+				break
+			} else if hitTP {
+				status = "TP"
+				exitPrice = tpPrice
+				exitTime = ltf.Time
+				break
+			} else if hitSL {
+				status = "SL"
+				exitPrice = slPrice
+				exitTime = ltf.Time
+				break
+			}
+		}
+
+		// اگر تا پایان داده‌ها بسته نشد (Time Exit)
+		if status == "" {
+			if len(ltfForTrade) > 0 {
+				lastLtf := ltfForTrade[len(ltfForTrade)-1]
+				exitPrice = lastLtf.Close
+				exitTime = lastLtf.Time
+			} else {
+				exitPrice = entryPrice
+				exitTime = entryTime
+			}
+			status = "TIME_EXIT"
+		}
+
+		// محاسبه سود یا ضرر
+		var pnl float64
+		if tradeType == "Long" {
+			pnl = (exitPrice - entryPrice) * quantity
+		} else {
+			pnl = (entryPrice - exitPrice) * quantity
+		}
+
+		// مدیریت سرمایه
+		capitalBefore := currentCapital
+		currentCapital += pnl
+		capitalAfter := currentCapital
+
+		// محاسبه ROI
+		roi := 0.0
+		if capitalBefore > 0 {
+			roi = (pnl / capitalBefore) * 100
+		}
+
+		lastCloseTime = exitTime
+
+		// ثبت ترید
+		trades = append(trades, WalkForwardTrade{
+			EntryTime:        entryTime,
+			ExitTime:         exitTime,
+			Type:             tradeType,
+			EntryPrice:       entryPrice,
+			ExitPrice:        exitPrice,
+			TP:               tpUSD,
+			SL:               slUSD,
+			PnL:              pnl,
+			Status:           status,
+			EntryBodyPercent: htf.BodyPercentage(),
+			EntryBodyGroup:   groupIdx,
+			CapitalBefore:    capitalBefore,
+			CapitalAfter:     capitalAfter,
+			ROI:              roi,
+		})
+	}
+
+	// چاپ خلاصه
+	totalPnL := 0.0
+	winCount := 0
+	for _, t := range trades {
+		totalPnL += t.PnL
+		if t.Status == "TP" {
+			winCount++
+		}
+	}
+
+	fmt.Printf("\n خلاصه تریدها:\n")
+	fmt.Printf("   کل تریدها: %d\n", len(trades))
+	fmt.Printf("   تریدهای برنده: %d\n", winCount)
+	if len(trades) > 0 {
+		fmt.Printf("   Win Rate: %.1f%%\n", (float64(winCount)/float64(len(trades)))*100)
+	}
+	fmt.Printf("   سود خالص کل: $%.2f\n", totalPnL)
+	fmt.Printf("   سرمایه نهایی: $%.2f\n", currentCapital)
+	fmt.Println("═════════════════════════════════════════════════════════")
+
+	return trades
+}
+
+// PrintStaticTrades چاپ لیست تریدها با فرمت جدولی درخواستی
+func PrintStaticTrades(trades []WalkForwardTrade) {
+	if len(trades) == 0 {
+		fmt.Println("هیچ تریدی ثبت نشده است.")
+		return
+	}
+
+	fmt.Printf("\n📜 لیست تریدها (%d ترید):\n", len(trades))
+
+	fmt.Println("┌────────────────────────────────────────┬────────────────────┬──────────┬───────────┬─────────────┬─────────────┬─────────────┼─────────────┼───────┐")
+	fmt.Println("│       	       Time                  │  Type    │  Entry   │   Exit   │   TP      │   SL        │   PnL       │  Cap Before │  Cap After  │  ROI  │")
+	fmt.Println("├────────────────────────────────────────┼──────────┼──────────┼──────────┼────────────────────────┼─────────────┼─────────────┼─────────────┼───────┤")
+
+	for _, t := range trades {
+		timeStr := time.Unix(t.EntryTime, 0).UTC().Format("2006-01-02 15:04")
+		exitStr := time.Unix(t.ExitTime, 0).UTC().Format("2006-01-02 15:04")
+
+		fmt.Printf("│ %s -> %s   │ %-6s   │ %8.2f │ %8.2f │ %-9.2f │ $ %-9.0f │ $ %-9.2f │ $ %-11.2f │ $ %-11.2f │ %5.2f%% │\n",
+			timeStr,
+			exitStr,
+			t.Type,
+			t.EntryPrice,
+			t.ExitPrice,
+			t.TP,
+			t.SL,
+			t.PnL,
+			t.CapitalBefore,
+			t.CapitalAfter,
+			t.ROI,
+		)
+	}
+	fmt.Println("└──────────────────────────────────────────────────┴──────────┴──────────┴───────────┴─────────────┴─────────────┴─────────────┴─────────────┴───────┘")
 }
