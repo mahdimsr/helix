@@ -61,3 +61,19 @@ func CalculateTargetPrice(entryPrice, lot, targetUSD float64, symbol string, sid
 
 	return targetPrice
 }
+
+func CalculateLotSize(margin, leverage, price, contractSize float64, symbol string) float64 {
+	// ۱. محاسبه ارزش کل پوزیشن
+	positionValue := margin * leverage
+
+	// ۲. محاسبه مقدار واحد (مثلاً چند بیت‌کوین یا چند یورو)
+	quantity := positionValue / price
+
+	// ۳. تبدیل به لات
+	lot := quantity / contractSize
+
+	// ۴. گرد کردن به 2 رقم اعشار (استاندارد اکثر بروکرها)
+	lot = lot * 100 / 100
+
+	return lot
+}
