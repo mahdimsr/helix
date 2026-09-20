@@ -19,7 +19,7 @@ func CalculateTargetPrice(entryPrice, lot, targetUSD float64, symbol string, sid
 		contractSize = 100000.0 // جفت‌ارزهای استاندارد
 		isQuoteUSD = false      // USDJPY, USDCHF (Base = USD)
 	} else if strings.Contains(upperSymbol, "BTC") || strings.Contains(upperSymbol, "BITCOIN") {
-		contractSize = 1.0 // بیت‌کوین: هر لات = 1 واحد بیت‌کوین (در 99% بروکرها)
+		contractSize = 0.1 // بیت‌کوین: هر لات = 1 واحد بیت‌کوین (در 99% بروکرها)
 		isQuoteUSD = true
 	} else {
 		contractSize = 100000.0 // EURUSD, GBPUSD, etc.
