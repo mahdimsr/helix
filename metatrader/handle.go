@@ -10,7 +10,6 @@ import (
 	"helix/walking"
 	"io"
 	"log"
-	"math"
 	"net"
 	"os"
 	"strconv"
@@ -159,11 +158,6 @@ func Handle(conn net.Conn) {
 				case 1000:
 
 					// check profit to handle order
-					/*if order.Profit > 0 {
-						closeOrder(*client, order.Ticket)
-						err = updateOrder(*client, order.Ticket, newSl, newTp)
-
-					}*/
 
 					buffer := 8.0
 					isBuy := order.Side == "BUY"
@@ -223,7 +217,7 @@ func Handle(conn net.Conn) {
 						}
 					}
 
-					if progressPercent >= 80 {
+					/*if progressPercent >= 80 {
 
 						newSl := CalculatePriceAtPercent(order.EntryPrice, order.Tp, 60)
 
@@ -251,6 +245,10 @@ func Handle(conn net.Conn) {
 								log.Printf("🎯 TP Extended to: %.5f", newTp)
 							}
 						}
+					}*/
+
+					if progressPercent >= 90 {
+						closeOrder(*client, order.Ticket)
 					}
 
 				case 2000:
