@@ -7,23 +7,15 @@ import (
 	"helix/indicators"
 	"helix/models"
 	"helix/notification"
-	"helix/walking"
 	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
-)
-
-var (
-	m15Candles []models.Candle
-	m5Candles  []models.Candle
-	mu         sync.Mutex
 )
 
 func Handle(conn net.Conn) {
@@ -37,9 +29,6 @@ func Handle(conn net.Conn) {
 	client := NewMT5Client(conn)
 
 	ticker := time.NewTicker(15 * time.Minute)
-	defer ticker.Stop()
-
-	ticker5m := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	tickerSec := time.NewTicker(3 * time.Second)
@@ -80,8 +69,6 @@ func Handle(conn net.Conn) {
 				time.Sleep(50 * time.Millisecond)
 				inquiryOpenOrders(*client, ticketRepo)
 			}
-		case <-ticker5m.C:
-			requestCandles(*client, symbol, "PERIOD_M5", 3*candlesCount)
 		case <-ticker.C:
 
 			fmt.Println("Requesting Candle")
@@ -119,15 +106,7 @@ func Handle(conn net.Conn) {
 
 				fmt.Printf("Fetch %d candles \n", len(candles))
 
-				if result.Timeframe == "M15" || result.Timeframe == "PERIOD_M15" {
-
-					m15Candles = candles
-					evaluateStrategy(symbol, m15Candles, m5Candles, *client, ticketRepo)
-
-				} else if result.Timeframe == "M5" || result.Timeframe == "PERIOD_M5" {
-					m5Candles = candles
-					fmt.Printf("✅ M5 Candles Updated in background. Total: %d\n", len(m5Candles))
-				}
+				evaluateStrategy(symbol, candles, *client, ticketRepo)
 
 			}
 
@@ -261,7 +240,7 @@ func Handle(conn net.Conn) {
 					balance := order.Balance
 
 					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
-					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID")
+					telegramChatId := os.Getenv("TELEGRAM_RESULT_ID")
 					appName := os.Getenv("APP_NAME")
 
 					telegramService := notification.NewTelegramService(telegramApiKey)
@@ -447,49 +426,40 @@ func CalculatePriceAtPercent(entryPrice, tpPrice, percent float64) float64 {
 	return entryPrice + (tpPrice-entryPrice)*(percent/100.0)
 }
 
-func evaluateStrategy(symbol string, htf []models.Candle, ltf []models.Candle, client MTClient, repo *database.FileRepository) {
-	if len(htf) < 50 {
-		fmt.Println("⚠️ Not enough M15 candles to evaluate strategy.")
-		return
-	}
-
-	activeLTF := ltf
-	if len(activeLTF) < 50 {
-		fmt.Println("⚠️ M5 data not ready yet, falling back to M15 for LTF analysis.")
-		activeLTF = htf
-	}
-
-	// 🆕 استفاده از LiveConfig
-	config := walking.DefaultLiveConfig()
-
-	// اگر می‌خواهید مقادیر را از فایل کانفیگ بخوانید:
-	// config := loadConfigFromFile("live_config.json")
-
-	liveSignal := walking.GenerateLiveSignal(htf, activeLTF, config)
-
-	fmt.Printf("🤖 Live Eval -> Signal: %s | TP: $%.0f | SL: $%.0f | BodyGroup: %d \n",
-		liveSignal.Signal, liveSignal.TP, liveSignal.SL, liveSignal.Group)
+func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo *database.FileRepository) {
 
 	lastClosedCandle := htf[len(htf)-2]
-	amount := CalculateLotSize(400, 10, lastClosedCandle.Close, 1, "BTC")
 
-	if liveSignal.Signal != indicators.NoneSignal {
-		var tpPrice float64
-		var slPrice float64
-		if liveSignal.Signal == indicators.BuySignal {
-			tpPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, liveSignal.TP, "BTC", "BUY")
-			slPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, liveSignal.SL, "BTC", "SELL")
-		} else {
-			tpPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, liveSignal.TP, "BTC", "SELL")
-			slPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, liveSignal.SL, "BTC", "BUY")
+	if lastClosedCandle.BodyPercentage() > 0.2 {
+
+		signalStr := "NONE"
+		signal := indicators.NoneSignal
+
+		if lastClosedCandle.IsGreen() {
+			signal = indicators.SellSignal
+			signalStr = "SELL"
+		} else if lastClosedCandle.IsRed() {
+			signal = indicators.BuySignal
+			signalStr = "BUY"
 		}
 
-		fmt.Printf("🤖 Live Cal -> Signal: %s | TP: $%.0f | SL: $%.0f | BodyGroup: %d \n",
-			liveSignal.Signal, tpPrice, slPrice, liveSignal.Group)
+		amount := 0.3
 
-		fmt.Printf("🚀 Executing Trade: %s at price %.2f\n", liveSignal.Signal, lastClosedCandle.Close)
-		placeOrder(client, symbol, liveSignal.Trade, amount, lastClosedCandle.Close, tpPrice, slPrice)
-	} else {
-		fmt.Println("⏸️ No valid signal detected based on Walk-Forward logic.")
+		if signal != indicators.NoneSignal {
+			var tpPrice float64
+			var slPrice float64
+			if signal == indicators.BuySignal {
+				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, 1, "BTC", "BUY")
+				slPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, 4, "BTC", "SELL")
+			} else {
+				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, 1, "BTC", "SELL")
+				slPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, 4, "BTC", "BUY")
+			}
+
+			placeOrder(client, symbol, signalStr, amount/10, lastClosedCandle.Close, tpPrice, slPrice)
+		} else {
+			fmt.Println("⏸️ No valid signal detected based on Walk-Forward logic.")
+		}
 	}
+
 }
