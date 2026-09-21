@@ -152,40 +152,98 @@ func Handle(conn net.Conn) {
 				// تفسیر Retcode به عنوان وضعیت
 				switch order.Retcode {
 				case 1000:
-					log.Printf("✅ Position OPEN. Current Price: %.5f | Info: %s", order.Price, order.Comment)
+					// check profit to handle order
+					/*if order.Profit > 0 {
+						closeOrder(*client, order.Ticket)
+						err = updateOrder(*client, order.Ticket, newSl, newTp)
 
-					totalDistance := math.Abs(order.Tp - order.EntryPrice)
+					}*/
 
-					if totalDistance > 0 { // جلوگیری از تقسیم بر صفر
+					buffer := 8.0
+					isBuy := order.Side == "BUY"
+					progressPercent := calculateTPProgress(order.EntryPrice, order.Tp, order.Price)
 
-						tpProgress := calculateTPProgress(order.EntryPrice, order.Tp, order.Price)
+					log.Printf("Progress of Tp: %.2f", progressPercent)
+					log.Printf("Pnl : %.2f", order.Profit)
 
-						log.Printf("📊 Progress: %.2f towards TP (Ticket: %d)", tpProgress, order.Ticket)
+					if progressPercent >= 20.0 {
 
-						//priceAt20Percent := order.EntryPrice + (order.Tp-order.EntryPrice)*0.20
+						newSl := riskFree(order, buffer)
 
-						// اگر بین 70 تا 90 درصد طی شده بود tp و sl رو تکون بده
-						/*if (tpProgress >= 70.0 && tpProgress < 80) || (tpProgress >= 50.0 && tpProgress < 55) {
-							log.Printf("🛑 SL updated to price: %.2f", priceAt20Percent)
+						needsUpdate := false
+						if isBuy && order.Sl < newSl {
+							// SL هنوز خیلی پایین است، باید بالا بیاید
+							needsUpdate = true
+						} else if !isBuy && order.Sl > newSl {
+							needsUpdate = true // قیمت پایین آمده، SL هم باید پایین‌تر بیاید
+						}
 
-							shiftAmount := math.Abs(priceAt20Percent - order.EntryPrice)
-							newTp := order.Tp + (order.Tp-order.EntryPrice)*0.20
-							newSl := order.Sl + shiftAmount
-
-							if math.Abs(order.Tp-newTp) > 50 {
-
-								log.Printf("📊 Progress: %.2f%% | Shift Amount: %.5f | New TP Target: %.5f (Ticket: %d)", tpProgress, shiftAmount, newTp, order.Ticket)
-
-								err = updateOrder(*client, order.Ticket, newSl, newTp)
-
-								fmt.Printf("Update TP/SL error: %s", err)
+						if needsUpdate {
+							log.Println("Need to update SL in 20 percent")
+							err = updateOrder(*client, order.Ticket, newSl, order.Tp)
+							if err != nil {
+								log.Printf("❌ Update TP/SL error for ticket %d: %s", order.Ticket, err)
+							} else {
+								log.Printf("✅ Successfully updated TP/SL for ticket %d", order.Ticket)
 							}
-						}*/
+						} else {
+							log.Println("Noooo Need to update SL in 20 percent")
+						}
+					}
 
-						// ✅ اگر ۹۰ درصد یا بیشتر مسیر طی شده بود، ببند
-						if tpProgress >= 90.0 {
-							log.Printf("🚨 EARLY EXIT TRIGGERED! Reached %.1f%% of TP. Closing ticket %d immediately.", tpProgress, order.Ticket)
-							closeOrder(*client, order.Ticket)
+					if progressPercent >= 50 {
+
+						newSl := CalculatePriceAtPercent(order.EntryPrice, order.Tp, 20)
+
+						needsUpdate := false
+						if isBuy && order.Sl < newSl {
+							needsUpdate = true
+						} else if !isBuy && order.Sl > newSl {
+							needsUpdate = true
+						}
+
+						if needsUpdate {
+
+							log.Println("Need to update SL in 50 percent")
+
+							err = updateOrder(*client, order.Ticket, newSl, order.Tp)
+							if err != nil {
+								log.Printf("❌ Update TP/SL error for ticket %d: %s", order.Ticket, err)
+							} else {
+								log.Printf("✅ Successfully updated TP/SL for ticket %d", order.Ticket)
+							}
+						} else {
+							log.Println("Noooo Need to update SL in 50 percent")
+						}
+					}
+
+					if progressPercent >= 80 {
+
+						newSl := CalculatePriceAtPercent(order.EntryPrice, order.Tp, 60)
+
+						totalDistance := math.Abs(order.Tp - order.EntryPrice)
+						extensionAmount := totalDistance * 0.10
+
+						var newTp float64
+						if isBuy {
+							newTp = order.Tp + extensionAmount
+						} else {
+							newTp = order.Tp - extensionAmount
+						}
+
+						needsUpdate := false
+						if isBuy && newTp > order.Tp {
+							needsUpdate = true
+						} else if !isBuy && newTp < order.Tp {
+							needsUpdate = true
+						}
+
+						if needsUpdate {
+							err = updateOrder(*client, order.Ticket, newSl, newTp)
+							if err == nil {
+								order.Tp = newTp
+								log.Printf("🎯 TP Extended to: %.5f", newTp)
+							}
 						}
 					}
 
@@ -360,20 +418,44 @@ func closeOrder(client MTClient, ticket int64) {
 	}
 }
 
-func calculateTPProgress(orderPrice, tpPrice, currentPrice float64) float64 {
-
-	log.Printf("Tp: %.2f Entry: %.2f Current: %.2f", tpPrice, orderPrice, currentPrice)
-
-	totalDistance := math.Abs(tpPrice - orderPrice)
-	direction := 0.0
-	if tpPrice > orderPrice {
-		direction = 1
-	} else {
-		direction = -1
+func calculateTPProgress(entryPrice, tpPrice, currentPrice float64) float64 {
+	// فاصله کل تا هدف (این مقدار برای BUY مثبت و برای SELL منفی است)
+	totalDistance := tpPrice - entryPrice
+	if totalDistance == 0 {
+		return 0
 	}
 
-	coveredDistance := (currentPrice - orderPrice) * direction
-	progress := (coveredDistance / totalDistance) * 100
+	// فاصله طی شده از نقطه ورود
+	// (اگر در جهت سود باشیم هم‌علامت با totalDistance است، اگر در ضرر باشیم خلاف علامت آن است)
+	currentDistance := currentPrice - entryPrice
+
+	// محاسبه درصد پیشرفت
+	progress := (currentDistance / totalDistance) * 100.0
+
+	// محدود کردن حداکثر به 100 درصد (اگر قیمت از TP هم رد شد)
+	if progress > 100.0 {
+		return 100.0
+	}
+
+	// محدود کردن حداقل به -100 درصد (اختیاری، برای جلوگیری از اعداد خیلی بزرگ منفی در ضرر سنگین)
+	if progress < -100.0 {
+		return -100.0
+	}
 
 	return progress
+}
+
+func riskFree(order OrderResult, buffer float64) (newSl float64) {
+
+	newSl = CalculatePriceAtPercent(order.EntryPrice, order.Tp, 0)
+
+	if order.Side == "BUY" {
+		return newSl + buffer
+	}
+
+	return newSl - buffer
+}
+
+func CalculatePriceAtPercent(entryPrice, tpPrice, percent float64) float64 {
+	return entryPrice + (tpPrice-entryPrice)*(percent/100.0)
 }
