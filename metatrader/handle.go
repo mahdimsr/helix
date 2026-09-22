@@ -36,7 +36,7 @@ func Handle(conn net.Conn) {
 
 	_ = godotenv.Load()
 
-	symbol := "BTCUSD"
+	symbol := "XAUUSD.ecn"
 	timeframe := "PERIOD_M15"
 	candlesCount := 10
 
@@ -138,14 +138,32 @@ func Handle(conn net.Conn) {
 
 					// check profit to handle order
 
-					buffer := 8.0
-					isBuy := order.Side == "BUY"
+					//buffer := 8.0
+					//isBuy := order.Side == "BUY"
 					progressPercent := calculateTPProgress(order.EntryPrice, order.Tp, order.Price)
 
-					log.Printf("Progress of Tp: %.2f", progressPercent)
-					log.Printf("Pnl : %.2f", order.Profit)
+					comment := order.ParsComment()
 
-					if progressPercent >= 20.0 {
+					profitString := comment["PRF"]
+					profitFloat, _ := strconv.ParseFloat(strings.TrimSpace(profitString), 64)
+
+					log.Printf("Progress of Tp: %.2f", progressPercent)
+					log.Printf("Pnl : %.2f", profitFloat)
+
+					// by pnl
+					if profitFloat > 1.5 {
+						closeOrder(*client, order.Ticket)
+					}
+					if profitFloat < -3.5 {
+						closeOrder(*client, order.Ticket)
+					}
+
+					// by percentage
+					if progressPercent >= 90 {
+						closeOrder(*client, order.Ticket)
+					}
+
+					/*if progressPercent >= 20.0 {
 
 						newSl := riskFree(order, buffer)
 
@@ -196,7 +214,7 @@ func Handle(conn net.Conn) {
 						}
 					}
 
-					/*if progressPercent >= 80 {
+					if progressPercent >= 80 {
 
 						newSl := CalculatePriceAtPercent(order.EntryPrice, order.Tp, 60)
 
@@ -225,10 +243,6 @@ func Handle(conn net.Conn) {
 							}
 						}
 					}*/
-
-					if progressPercent >= 90 {
-						closeOrder(*client, order.Ticket)
-					}
 
 				case 2000:
 					log.Printf("🔒 Position CLOSED. Close Price: %.5f | Info: %s", order.Price, order.Comment)
