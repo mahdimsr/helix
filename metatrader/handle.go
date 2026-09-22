@@ -159,12 +159,16 @@ func Handle(conn net.Conn) {
 
 					}*/
 
+					comment := order.ParsComment()
 					buffer := 8.0
-					isBuy := order.Side == "BUY"
+					isBuy := comment["TYPE"] == "BUY"
 					progressPercent := calculateTPProgress(order.EntryPrice, order.Tp, order.Price)
 
+					profitString := comment["PRF"]
+					profitFloat, _ := strconv.ParseFloat(strings.TrimSpace(profitString), 64)
+
 					log.Printf("Progress of Tp: %.2f", progressPercent)
-					log.Printf("Pnl : %.2f", order.Profit)
+					log.Printf("Pnl : %.2f", profitFloat)
 
 					if progressPercent >= 20.0 {
 
@@ -219,7 +223,7 @@ func Handle(conn net.Conn) {
 
 					if progressPercent >= 80 {
 
-						newSl := CalculatePriceAtPercent(order.EntryPrice, order.Tp, 60)
+						newSl := CalculatePriceAtPercent(order.EntryPrice, order.Tp, 50)
 
 						totalDistance := math.Abs(order.Tp - order.EntryPrice)
 						extensionAmount := totalDistance * 0.10
