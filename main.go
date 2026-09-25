@@ -6,7 +6,6 @@ import (
 	"helix/database"
 	"helix/indicators"
 	"log"
-	"sort"
 )
 
 func main() {
@@ -14,12 +13,12 @@ func main() {
 	db := database.MongoConnect()
 	candlesRepo := database.NewCandleRepository(&db)
 
-	symbol := "XAUTUSDT"
-	timeframe := "5m"
-	startTime := "2026-07-20"
-	endTime := "2026-08-02"
-	tpPercent := 0.2
-	slPercent := 2.0
+	symbol := "BTCUSDT"
+	timeframe := "15m"
+	startTime := "2026-09-01"
+	endTime := "2026-09-20"
+	tpPercent := 0.3
+	slPercent := 0.8
 
 	candles, err := candlesRepo.Fetch(context.Background(), symbol, timeframe, startTime, endTime)
 	if err != nil {
@@ -27,21 +26,18 @@ func main() {
 	}
 
 	optimizedResults := indicators.OptimizeUTBot(candles, tpPercent, slPercent)
-	sort.Slice(optimizedResults, func(i, j int) bool {
-		return optimizedResults[i].TotalGain > optimizedResults[j].TotalGain
-	})
 
 	for _, result := range optimizedResults {
 		fmt.Printf("ATR=%d Sens=%.0f Gain=%.2f%% Trades=%d WinRate=%.1f%%\n",
 			result.ATR, result.Sensitivity, result.TotalGain, result.TradeCount, result.WinRate)
 	}
 
-	newCandles, newerr := candlesRepo.Fetch(context.Background(), symbol, timeframe, startTime, endTime)
+	newCandles, newerr := candlesRepo.Fetch(context.Background(), symbol, timeframe, "2026-09-01", "2026-09-25")
 	if newerr != nil {
 		log.Fatalf("Error getching candle: %d", err)
 	}
 
-	details := indicators.BacktestUTBotDetail(newCandles, 4, 80, tpPercent, slPercent)
+	details := indicators.BacktestUTBotDetail(newCandles, 8, 40, tpPercent, slPercent)
 	fmt.Printf("Trads count: %d\n", len(details.Trades))
 	for _, t := range details.Trades {
 		duration := t.ExitTime.Sub(t.EntryTime)

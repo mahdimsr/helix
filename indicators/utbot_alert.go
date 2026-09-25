@@ -265,39 +265,57 @@ func BacktestUtBotWithTPSL(candles []models.Candle, sensitivity float64, atrPeri
 	sum := 0.0
 	var prevStop float64
 
-	// وضعیت معامله باز
 	inTrade := false
 	var tradeType string
 	var entryPrice float64
+	//var entryIndex int // FIX: برای محاسبه دقیق سود/ضرر در خروج با سیگنال
 
-	tpFrac := tpPercent / 100.0 // 0.3% -> 0.003
-	slFrac := slPercent / 100.0 // 0.9% -> 0.009
+	tpFrac := tpPercent / 100.0
+	slFrac := slPercent / 100.0
 
 	for i := 0; i < n; i++ {
 		high := candles[i].High
 		low := candles[i].Low
 		closePrice := candles[i].Close
 
-		// --- ابتدا بررسی خروج معامله باز با TP/SL ---
+		// --- ۱. بررسی خروج معامله باز (TP / SL / UT Bot Stop) ---
 		if inTrade {
-			var tpHit, slHit bool
+			var tpHit, slHit, utBotStopHit bool
 
 			if tradeType == "Long" {
 				tpLevel := entryPrice * (1 + tpFrac)
 				slLevel := entryPrice * (1 - slFrac)
 				tpHit = high >= tpLevel
 				slHit = low <= slLevel
+				utBotStopHit = low <= prevStop // FIX: خروج با استاپ داینامیک UT Bot
 			} else { // Short
 				tpLevel := entryPrice * (1 - tpFrac)
 				slLevel := entryPrice * (1 + slFrac)
 				tpHit = low <= tpLevel
 				slHit = high >= slLevel
+				utBotStopHit = high >= prevStop // FIX: خروج با استاپ داینامیک UT Bot
 			}
 
-			// ابهام درون‌کندلی: اگر هر دو خوردند، محافظه‌کارانه SL را اول فرض می‌کنیم
+			// اولویت‌بندی خروج: SL > UT Bot Stop > TP (محافظه‌کارانه)
 			if slHit {
 				res.TotalGain -= slPercent
 				res.LossCount++
+				res.TradeCount++
+				inTrade = false
+			} else if utBotStopHit {
+				// FIX: محاسبه دقیق سود/ضرر بر اساس قیمت prevStop
+				var gainPercent float64
+				if tradeType == "Long" {
+					gainPercent = ((prevStop - entryPrice) / entryPrice) * 100
+				} else {
+					gainPercent = ((entryPrice - prevStop) / entryPrice) * 100
+				}
+				res.TotalGain += gainPercent
+				if gainPercent >= 0 {
+					res.WinCount++
+				} else {
+					res.LossCount++
+				}
 				res.TradeCount++
 				inTrade = false
 			} else if tpHit {
@@ -308,7 +326,7 @@ func BacktestUtBotWithTPSL(candles []models.Candle, sensitivity float64, atrPeri
 			}
 		}
 
-		// --- محاسبات اندیکاتور UT Bot ---
+		// --- ۲. محاسبات اندیکاتور UT Bot ---
 		if i == 0 {
 			tr := high - low
 			sum += tr
@@ -346,20 +364,40 @@ func BacktestUtBotWithTPSL(candles []models.Candle, sensitivity float64, atrPeri
 		buySignal := closePrice > stop && above
 		sellSignal := closePrice < stop && below
 
-		prevStop = stop
+		prevStop = stop // آپدیت برای کندل بعدی
 
-		// --- ورود به معامله (فقط اگر معامله باز نداریم) ---
+		// --- ۳. ورود به معامله (فقط اگر معامله باز نداریم) ---
 		if !inTrade {
 			if buySignal {
 				inTrade = true
 				tradeType = "Long"
 				entryPrice = closePrice
+				//entryIndex = i
 			} else if sellSignal {
 				inTrade = true
 				tradeType = "Short"
 				entryPrice = closePrice
+				//entryIndex = i
 			}
 		}
+	}
+
+	// FIX: بستن معامله باز در انتهای داده‌ها و محاسبه سود/ضرر آن
+	if inTrade {
+		lastClose := candles[n-1].Close
+		var gainPercent float64
+		if tradeType == "Long" {
+			gainPercent = ((lastClose - entryPrice) / entryPrice) * 100
+		} else {
+			gainPercent = ((entryPrice - lastClose) / entryPrice) * 100
+		}
+		res.TotalGain += gainPercent
+		if gainPercent >= 0 {
+			res.WinCount++
+		} else {
+			res.LossCount++
+		}
+		res.TradeCount++
 	}
 
 	if res.TradeCount > 0 {

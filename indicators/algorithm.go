@@ -287,5 +287,9 @@ func OptimizeUTBot(candles []models.Candle, tpPercent, slPercent float64) []Sing
 		return results[i].TotalGain > results[j].TotalGain
 	})
 
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].WinRate > results[j].WinRate
+	})
+
 	return results
 }
