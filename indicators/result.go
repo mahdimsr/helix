@@ -8,6 +8,11 @@ const (
 	NoneSignal Signal = "NONE"
 )
 
+type FibLevel struct {
+	Ratio float64 `json:"ratio"` // نسبت فیبوناچی (مثلاً 0.618)
+	Price float64 `json:"price"` // قیمت محاسبه شده در این سطح
+}
+
 type OptimizationResult struct {
 	CondATR       int     `json:"cond_atr"`
 	CondSens      float64 `json:"cond_sens"`
