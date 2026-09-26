@@ -19,6 +19,10 @@ type OptimizationResult struct {
 	WinTrades     int     `json:"win_trades"`
 	WinRate       float64 `json:"win_rate"`
 	TotalGainPerc float64 `json:"total_gain_perc"`
+	TPPercent     float64
+	SLPercent     float64
+	TotalGain     float64
+	TradeCount    int
 }
 
 type UTBotParam struct {
