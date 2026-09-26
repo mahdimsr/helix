@@ -27,6 +27,7 @@ type WalkForwardTrade struct {
 	CapitalBefore float64 `json:"capitalBefore"` // سرمایه قبل از ورود به این ترید
 	CapitalAfter  float64 `json:"capitalAfter"`  // سرمایه بعد از خروج از این ترید
 	ROI           float64 `json:"roi"`
+	Comment       string  `json:"comment"`
 }
 
 type WalkForwardResult struct {
@@ -409,15 +410,15 @@ func PrintWalkForwardTrades(result *WalkForwardResult) {
 	fmt.Printf("\n📜 لیست تریدهای پیمایش پنجره‌ای (%d ترید):\n", len(result.Trades))
 
 	// 🆕 هدر جدول با ستون‌های جدید
-	fmt.Println("┌────────────────────────────────────────┬──────────┬──────────┬──────────┬───────────┬─────────────┬─────────────┬─────────────┼─────────────┼───────┐")
-	fmt.Println("│       	       Time                  │  Type    │  Entry   │   Exit   │   TP      │   SL        │   PnL       │  Cap Before │  Cap After  │  ROI  │")
-	fmt.Println("├────────────────────────────────────────┼──────────┼──────────┼──────────┼───────────┼─────────────┼─────────────┼─────────────┼─────────────┼───────┤")
+	fmt.Println("┌────────────────────────────────────────┬──────────┬──────────┬──────────┬───────────┬─────────────┬─────────────┬─────────────┼─────────────┼───────┼────────┐")
+	fmt.Println("│       	       Time                  │  Type    │  Entry   │   Exit   │   TP      │   SL        │   PnL       │  Cap Before │  Cap After  │  ROI  │ Comment ")
+	fmt.Println("├────────────────────────────────────────┼──────────┼──────────┼──────────┼───────────┼─────────────┼─────────────┼─────────────┼─────────────┼───────┼────────┤")
 
 	for _, t := range result.Trades {
 		timeStr := time.Unix(t.EntryTime, 0).UTC().Format("2006-01-02 15:04")
 		exitStr := time.Unix(t.ExitTime, 0).UTC().Format("2006-01-02 15:04")
 
-		fmt.Printf("│ %s -> %s   │ %-6s   │ %8.2f │ %8.2f │ %4.2f     │ $%4.0f     │ $%7.2f   │ $%10.2f     │ $%10.2f │ %5.2f%% │\n",
+		fmt.Printf("│ %s -> %s   │ %-6s   │ %8.2f │ %8.2f │ %4.2f   │ $%4.0f  │ $%7.2f   │ $%10.2f     │ $%10.2f │ %5.2f%% | %s │\n",
 			timeStr,
 			exitStr,
 			t.Type,
@@ -429,9 +430,10 @@ func PrintWalkForwardTrades(result *WalkForwardResult) {
 			t.CapitalBefore, // 🆕 سرمایه قبل
 			t.CapitalAfter,  // 🆕 سرمایه بعد
 			t.ROI,           // 🆕 ROI به درصد
+			t.Comment,
 		)
 	}
-	fmt.Println("├────────────────────────────────────────┼──────────┼──────────┼──────────┼───────────┼─────────────┼─────────────┼─────────────┼─────────────┼───────┤")
+	fmt.Println("├────────────────────────────────────────┼──────────┼──────────┼──────────┼───────────┼─────────────┼─────────────┼─────────────┼─────────────┼───────┼────────┤")
 }
 
 func NormalizeTimestamp(ts int64) int64 {
@@ -878,6 +880,7 @@ func executeTradesWithBodyGroups(
 			CapitalBefore:    capitalBefore,
 			CapitalAfter:     capitalAfter,
 			ROI:              roi,
+			Comment:          fmt.Sprintf("tpPrice: %.2f slPrice: %.2f", tpPrice, slPrice),
 		})
 	}
 
@@ -1064,6 +1067,7 @@ func ExecuteTradesWithStaticTPSL(
 			CapitalBefore:    capitalBefore,
 			CapitalAfter:     capitalAfter,
 			ROI:              roi,
+			Comment:          fmt.Sprintf("tpPrice: %.2f slPrice: %.2f", tpPrice, slPrice),
 		})
 	}
 
