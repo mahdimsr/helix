@@ -5,34 +5,26 @@ import (
 	"strings"
 )
 
-func CalculateTargetPrice(entryPrice, lot, targetUSD float64, symbol string, side string) float64 {
-	var contractSize float64
-	var isQuoteUSD bool
-
-	upperSymbol := strings.ToUpper(symbol)
-
-	// ۱. تشخیص ContractSize و نوع جفت‌ارز
-	if strings.Contains(upperSymbol, "XAU") || strings.Contains(upperSymbol, "GOLD") {
-		contractSize = 100.0 // طلا: هر لات = 100 اونس
-		isQuoteUSD = true    // XAUUSD (Quote = USD)
-	} else if strings.HasPrefix(upperSymbol, "USD") && len(upperSymbol) == 6 {
-		contractSize = 100000.0 // جفت‌ارزهای استاندارد
-		isQuoteUSD = false      // USDJPY, USDCHF (Base = USD)
-	} else if strings.Contains(upperSymbol, "BTC") || strings.Contains(upperSymbol, "BITCOIN") {
-		contractSize = 0.1 // بیت‌کوین: هر لات = 1 واحد بیت‌کوین (در 99% بروکرها)
-		isQuoteUSD = true
-	} else {
-		contractSize = 100000.0 // EURUSD, GBPUSD, etc.
-		isQuoteUSD = true       // Quote = USD
+func CalculateTargetPrice(entryPrice, volumeUSD, targetUSD float64, symbol string, side string) float64 {
+	if volumeUSD <= 0 {
+		return 0 // حجم دلاری باید عددی مثبت باشد
 	}
 
+	upperSymbol := strings.ToUpper(symbol)
 	var targetPrice float64
 
-	// ۲. محاسبه بر اساس نوع جفت‌ارز
-	if isQuoteUSD {
-		// برای EURUSD, GBPUSD, XAUUSD
-		// فرمول: Profit = (ExitPrice - EntryPrice) × Lot × ContractSize
-		priceDiff := targetUSD / (lot * contractSize)
+	// تشخیص اینکه آیا ارز پایه (Base Currency) دلار است یا خیر
+	// مثال: USDJPY, USDCHF (ارز پایه USD است)
+	// مثال: EURUSD, XAUUSD, BTCUSD (ارز مظنه (Quote) USD است)
+	isBaseUSD := strings.HasPrefix(upperSymbol, "USD") && len(upperSymbol) == 6
+
+	if !isBaseUSD {
+		// حالت اول: Quote = USD (مثل EURUSD, GBPUSD, XAUUSD, BTCUSD)
+		// تعداد واحد ارز پایه = volumeUSD / entryPrice
+		// فرمول سود: Profit = (TargetPrice - EntryPrice) * (volumeUSD / entryPrice)
+		// با بازآرایی فرمول برای TargetPrice:
+
+		priceDiff := (targetUSD * entryPrice) / volumeUSD
 
 		if side == "BUY" {
 			targetPrice = entryPrice + priceDiff
@@ -40,22 +32,23 @@ func CalculateTargetPrice(entryPrice, lot, targetUSD float64, symbol string, sid
 			targetPrice = entryPrice - priceDiff
 		}
 	} else {
-		// برای USDJPY, USDCHF
-		// فرمول: Profit = (ExitPrice - EntryPrice) × Lot × ContractSize / ExitPrice
-		// این معادله را برای ExitPrice حل می‌کنیم
+		// حالت دوم: Base = USD (مثل USDJPY, USDCHF)
+		// تعداد واحد ارز پایه (که خود دلار است) = volumeUSD
+		// فرمول سود: Profit = (TargetPrice - EntryPrice) * volumeUSD / TargetPrice
+		// با حل معادله ریاضی برای TargetPrice:
 
 		if side == "BUY" {
-			denominator := (lot * contractSize) - targetUSD
+			denominator := volumeUSD - targetUSD
 			if math.Abs(denominator) < 0.0001 {
-				return 0 // خطا: تقسیم بر صفر
+				return 0 // جلوگیری از تقسیم بر صفر
 			}
-			targetPrice = (entryPrice * lot * contractSize) / denominator
+			targetPrice = (entryPrice * volumeUSD) / denominator
 		} else {
-			denominator := (lot * contractSize) + targetUSD
+			denominator := volumeUSD + targetUSD
 			if math.Abs(denominator) < 0.0001 {
-				return 0 // خطا: تقسیم بر صفر
+				return 0 // جلوگیری از تقسیم بر صفر
 			}
-			targetPrice = (entryPrice * lot * contractSize) / denominator
+			targetPrice = (entryPrice * volumeUSD) / denominator
 		}
 	}
 
@@ -76,4 +69,27 @@ func CalculateLotSize(margin, leverage, price, contractSize float64, symbol stri
 	lot = lot * 100 / 100
 
 	return lot
+}
+
+func CalculateMaxVolume(accountBalance, currentPrice, leverage, contractSize float64) (maxLots, maxVolumeUSD float64) {
+	if accountBalance <= 0 || leverage <= 0 || currentPrice <= 0 || contractSize <= 0 {
+		return 0, 0
+	}
+
+	// ۱. محاسبه حداکثر حجم دلاری (Notional Value)
+	// این عددی است که در تابع قبلی (CalculateTargetPriceByVolume) به عنوان volumeUSD استفاده می‌شد
+	maxVolumeUSD = accountBalance * leverage
+
+	// ۲. محاسبه ارزش واقعی یک لات کامل
+	notionalValuePerLot := currentPrice * contractSize
+
+	// ۳. محاسبه مارجین مورد نیاز برای یک لات کامل
+	marginPerLot := notionalValuePerLot / leverage
+
+	// ۴. محاسبه حداکثر تعداد لات
+	if marginPerLot > 0 {
+		maxLots = accountBalance / marginPerLot
+	}
+
+	return maxLots, maxVolumeUSD
 }

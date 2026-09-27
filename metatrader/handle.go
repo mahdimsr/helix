@@ -36,7 +36,7 @@ func Handle(conn net.Conn) {
 
 	_ = godotenv.Load()
 
-	symbol := "BTCUSD"
+	symbol := "XAUUSD"
 	timeframe := "PERIOD_M15"
 	candlesCount := 10
 
@@ -151,10 +151,10 @@ func Handle(conn net.Conn) {
 					log.Printf("Pnl : %.2f", profitFloat)
 
 					// by pnl
-					if profitFloat > 1.5 {
+					if profitFloat > 7 {
 						closeOrder(*client, order.Ticket)
 					}
-					if profitFloat < -3.5 {
+					if profitFloat < -5 {
 						closeOrder(*client, order.Ticket)
 					}
 
@@ -457,20 +457,23 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 			signalStr = "BUY"
 		}
 
-		amount := 0.3
+		amountUsd := 600.0
+		leverage := 10.0
+
+		maxLots, maxVolumeUSD := CalculateMaxVolume(amountUsd, lastClosedCandle.Close, leverage, 100)
 
 		if signal != indicators.NoneSignal {
 			var tpPrice float64
 			var slPrice float64
 			if signal == indicators.BuySignal {
-				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, 1, "BTC", "BUY")
-				slPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, 4, "BTC", "SELL")
+				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, 8, "BTC", "BUY")
+				slPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, 6, "BTC", "SELL")
 			} else {
-				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, 1, "BTC", "SELL")
-				slPrice = CalculateTargetPrice(lastClosedCandle.Close, amount, 4, "BTC", "BUY")
+				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, 8, "BTC", "SELL")
+				slPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, 6, "BTC", "BUY")
 			}
 
-			placeOrder(client, symbol, signalStr, amount/10, lastClosedCandle.Close, tpPrice, slPrice)
+			placeOrder(client, symbol, signalStr, maxLots, lastClosedCandle.Close, tpPrice, slPrice)
 		} else {
 			fmt.Println("⏸️ No valid signal detected based on Walk-Forward logic.")
 		}
