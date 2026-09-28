@@ -444,7 +444,7 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 
 	lastClosedCandle := htf[len(htf)-2]
 
-	if lastClosedCandle.BodyPercentage() > 0.2 {
+	if lastClosedCandle.BodyPercentage() > 0.1 && lastClosedCandle.IsMarubozu() {
 
 		signalStr := "NONE"
 		signal := indicators.NoneSignal
@@ -457,10 +457,13 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 			signalStr = "BUY"
 		}
 
-		amountUsd := 600.0
-		leverage := 10.0
+		//amountUsd := 600.0
+		//leverage := 10.0
 
-		maxLots, maxVolumeUSD := CalculateMaxVolume(amountUsd, lastClosedCandle.Close, leverage, 100)
+		maxVolumeUSD := 10000.0
+		maxLots := 0.02
+
+		//maxLots, maxVolumeUSD := CalculateMaxVolume(amountUsd, lastClosedCandle.Close, leverage, 100)
 
 		if signal != indicators.NoneSignal {
 			var tpPrice float64
