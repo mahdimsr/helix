@@ -7,140 +7,191 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"sort"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
 
-func GenerateExcelFile(backtestTade []walking.WalkForwardTrade) ([]byte, error) {
+// UnifiedTrade ساختار یکپارچه برای هر دو نوع ترید
+type UnifiedTrade struct {
+	OpenTime  time.Time
+	CloseTime time.Time
+	Type      string
+	Entry     float64
+	Exit      float64
+	TP        float64
+	SL        float64
+	PnL       float64
+	ROI       float64
+	Source    string // "LIVE" یا "BACKTEST"
+}
 
+// MatchedRow نتیجه تطبیق یک ردیف
+type MatchedRow struct {
+	OpenTime time.Time
+	Live     *UnifiedTrade // nil اگر ترید لایو وجود نداشته باشد
+	Backtest *UnifiedTrade // nil اگر ترید بک‌تست وجود نداشته باشد
+}
+
+// GenerateExcelFile تریدهای لایو و بک‌تست را گرفته و فایل اکسل مقایسه‌ای تولید می‌کند
+func GenerateExcelFile(liveTrades []walking.WalkForwardTrade, backtestTrades []walking.WalkForwardTrade) ([]byte, error) {
+
+	// ۱. تبدیل هر دو لیست به فرمت یکپارچه
+	unifiedLive := convertLiveTrades(liveTrades)
+	unifiedBacktest := convertBacktestTrades(backtestTrades)
+
+	// ۲. مرتب‌سازی بر اساس OpenTime
+	sort.Slice(unifiedLive, func(i, j int) bool {
+		return unifiedLive[i].OpenTime.Before(unifiedLive[j].OpenTime)
+	})
+	sort.Slice(unifiedBacktest, func(i, j int) bool {
+		return unifiedBacktest[i].OpenTime.Before(unifiedBacktest[j].OpenTime)
+	})
+
+	// ۳. تطبیق تریدها با اختلاف حداکثر ۳ ثانیه
+	matchedRows := matchTrades(unifiedLive, unifiedBacktest, 3*time.Second)
+
+	// ۴. ساخت فایل اکسل
 	f := excelize.NewFile()
 	defer f.Close()
 
-	sheetName := "BackTest"
+	sheetName := "Comparison"
 	index, _ := f.NewSheet(sheetName)
 	f.SetActiveSheet(index)
-	// شیت پیش‌فرض Sheet1 را حذف می‌کنیم
 	f.DeleteSheet("Sheet1")
 
-	// ── ۱. هدرها ──
+	// ۵. هدرها
 	headers := []string{
-		"Open Timestamp", "Close Timestamp", "Type",
-		"Entry", "Exit", "TP", "SL",
-		"PnL",
+		"Open Time",
+		"Live_Type", "Live_Entry", "Live_Exit", "Live_TP", "Live_SL", "Live_PnL",
+		"BT_Type", "BT_Entry", "BT_Exit", "BT_TP", "BT_SL", "BT_PnL",
+		"Match",
 	}
+
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		f.SetCellValue(sheetName, cell, h)
 	}
 
-	// ── ۲. استایل هدر (پس‌زمینه آبی تیره، متن سفید، Bold) ──
-	headerStyle, _ := f.NewStyle(&excelize.Style{
+	// ۶. استایل هدرها
+	headerStyleLive, _ := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF", Size: 11},
-		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#2F5496"}},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#2F5496"}}, // آبی
 		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
-		Border: []excelize.Border{
-			{Type: "left", Color: "#FFFFFF", Style: 1},
-			{Type: "right", Color: "#FFFFFF", Style: 1},
-			{Type: "top", Color: "#FFFFFF", Style: 1},
-			{Type: "bottom", Color: "#FFFFFF", Style: 1},
-		},
 	})
-	for i := range headers {
+	headerStyleBT, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF", Size: 11},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#548235"}}, // سبز
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+	})
+	headerStyleNeutral, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF", Size: 11},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#404040"}}, // خاکستری
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+	})
+
+	// اعمال استایل به هدرها
+	for i := 0; i < len(headers); i++ {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-		f.SetCellStyle(sheetName, cell, cell, headerStyle)
+		if i == 0 || i == len(headers)-1 {
+			f.SetCellStyle(sheetName, cell, cell, headerStyleNeutral)
+		} else if i >= 1 && i <= 7 {
+			f.SetCellStyle(sheetName, cell, cell, headerStyleLive)
+		} else {
+			f.SetCellStyle(sheetName, cell, cell, headerStyleBT)
+		}
 	}
 
-	// ── ۳. استایل‌های داده ──
-	// استایل سود (سبز)
+	// ۷. استایل‌های داده
 	profitStyle, _ := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Color: "#006100"},
 		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#C6EFCE"}},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
-	// استایل ضرر (قرمز)
 	lossStyle, _ := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Color: "#9C0006"},
 		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFC7CE"}},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
-	// استایل عادی
 	normalStyle, _ := f.NewStyle(&excelize.Style{
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
-	// استایل Long (آبی)
-	longStyle, _ := f.NewStyle(&excelize.Style{
-		Font:      &excelize.Font{Bold: true, Color: "#2F5496"},
+	matchStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#006100"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#C6EFCE"}},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
-	// استایل Short (نارنجی)
-	shortStyle, _ := f.NewStyle(&excelize.Style{
-		Font:      &excelize.Font{Bold: true, Color: "#C55A11"},
+	mismatchStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#9C0006"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFC7CE"}},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 
-	// ── ۴. پر کردن داده‌ها ──
-	for r, row := range backtestTade {
-		rowNum := r + 2 // ردیف ۱ هدر است
+	// ۸. پر کردن داده‌ها
+	for r, row := range matchedRows {
+		rowNum := r + 2
 
-		values := []interface{}{
-			row.EntryTime,
-			row.ExitTime,
-			row.Type,
-			row.EntryPrice,
-			row.ExitPrice,
-			row.TP,
-			row.SL,
-			row.PnL,
-		}
+		// ستون Open Time
+		cell, _ := excelize.CoordinatesToCellName(1, rowNum)
+		f.SetCellValue(sheetName, cell, row.OpenTime.Format("2006-01-02 15:04:05"))
+		f.SetCellStyle(sheetName, cell, cell, normalStyle)
 
-		for c, val := range values {
-			cell, _ := excelize.CoordinatesToCellName(c+1, rowNum)
-			f.SetCellValue(sheetName, cell, val)
-
-			// اعمال استایل بر اساس محتوا
-			switch c {
-			case 2: // Type
-				if row.Type == "Long" {
-					f.SetCellStyle(sheetName, cell, cell, longStyle)
-				} else {
-					f.SetCellStyle(sheetName, cell, cell, shortStyle)
-				}
-			case 7, 10: // PnL و ROI
-				if row.PnL > 0 {
-					f.SetCellStyle(sheetName, cell, cell, profitStyle)
-				} else if row.PnL < 0 {
-					f.SetCellStyle(sheetName, cell, cell, lossStyle)
-				} else {
-					f.SetCellStyle(sheetName, cell, cell, normalStyle)
-				}
-			default:
+		// ستون‌های Live (ستون‌های ۲ تا ۸)
+		if row.Live != nil {
+			writeTradeData(f, sheetName, rowNum, 2, row.Live, profitStyle, lossStyle, normalStyle)
+		} else {
+			for c := 2; c <= 8; c++ {
+				cell, _ := excelize.CoordinatesToCellName(c, rowNum)
+				f.SetCellValue(sheetName, cell, "-")
 				f.SetCellStyle(sheetName, cell, cell, normalStyle)
 			}
 		}
+
+		// ستون‌های Backtest (ستون‌های ۹ تا ۱۵)
+		if row.Backtest != nil {
+			writeTradeData(f, sheetName, rowNum, 9, row.Backtest, profitStyle, lossStyle, normalStyle)
+		} else {
+			for c := 9; c <= 15; c++ {
+				cell, _ := excelize.CoordinatesToCellName(c, rowNum)
+				f.SetCellValue(sheetName, cell, "-")
+				f.SetCellStyle(sheetName, cell, cell, normalStyle)
+			}
+		}
+
+		// ستون Match (ستون ۱۶)
+		cell, _ = excelize.CoordinatesToCellName(16, rowNum)
+		if row.Live != nil && row.Backtest != nil {
+			f.SetCellValue(sheetName, cell, "✅")
+			f.SetCellStyle(sheetName, cell, cell, matchStyle)
+		} else {
+			f.SetCellValue(sheetName, cell, "❌")
+			f.SetCellStyle(sheetName, cell, cell, mismatchStyle)
+		}
 	}
 
-	// ── ۵. تنظیم عرض ستون‌ها ──
+	// ۹. تنظیم عرض ستون‌ها
 	colWidths := map[string]float64{
-		"A": 18, "B": 18, "C": 8,
-		"D": 10, "E": 10, "F": 8, "G": 8,
-		"H": 10, "I": 12, "J": 12, "K": 10,
+		"A": 20,
+		"B": 10, "C": 10, "D": 10, "E": 10, "F": 10, "G": 10, "H": 10,
+		"I": 10, "J": 10, "K": 10, "L": 10, "M": 10, "N": 10, "O": 10,
+		"P": 8,
 	}
 	for col, w := range colWidths {
 		f.SetColWidth(sheetName, col, col, w)
 	}
 
-	// ── ۶. فیلتر خودکار (Auto Filter) ──
-	lastRow := len(backtestTade) + 1
-	f.AutoFilter(sheetName, fmt.Sprintf("A1:K%d", lastRow), nil)
+	// ۱۰. فیلتر خودکار
+	lastRow := len(matchedRows) + 1
+	f.AutoFilter(sheetName, fmt.Sprintf("A1:P%d", lastRow), nil)
 
-	// ── ۷. خروجی به []byte ──
+	// ۱۱. خروجی به []byte
 	buf, err := f.WriteToBuffer()
 	if err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
-
 func SendExcelToTelegram(botToken, chatID string, fileData []byte, caption string) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendDocument", botToken)
 
@@ -183,4 +234,154 @@ func SendExcelToTelegram(botToken, chatID string, fileData []byte, caption strin
 	}
 
 	return nil
+}
+
+func convertLiveTrades(liveTrades []walking.WalkForwardTrade) []UnifiedTrade {
+
+	var trades []UnifiedTrade
+
+	for _, liveTrade := range liveTrades {
+		trades = append(trades, UnifiedTrade{
+			OpenTime:  time.Unix(liveTrade.EntryTime, 0),
+			CloseTime: time.Unix(liveTrade.ExitTime, 0),
+			Type:      liveTrade.Type,
+			Entry:     liveTrade.EntryPrice,
+			Exit:      liveTrade.ExitPrice,
+			TP:        liveTrade.TP,
+			SL:        liveTrade.SL,
+			PnL:       liveTrade.PnL,
+			Source:    "Live",
+		})
+	}
+
+	return trades
+}
+
+func convertBacktestTrades(backtestTrades []walking.WalkForwardTrade) []UnifiedTrade {
+
+	var trades []UnifiedTrade
+
+	for _, liveTrade := range backtestTrades {
+		trades = append(trades, UnifiedTrade{
+			OpenTime:  time.Unix(liveTrade.EntryTime, 0),
+			CloseTime: time.Unix(liveTrade.ExitTime, 0),
+			Type:      liveTrade.Type,
+			Entry:     liveTrade.EntryPrice,
+			Exit:      liveTrade.ExitPrice,
+			TP:        liveTrade.TP,
+			SL:        liveTrade.SL,
+			PnL:       liveTrade.PnL,
+			Source:    "Live",
+		})
+	}
+
+	return trades
+}
+
+// matchTrades تریدهای لایو و بک‌تست را با اختلاف زمانی مشخص جفت می‌کند
+func matchTrades(live, backtest []UnifiedTrade, maxDiff time.Duration) []MatchedRow {
+	var result []MatchedRow
+
+	i, j := 0, 0
+	usedBT := make(map[int]bool)
+
+	for i < len(live) {
+		liveTrade := live[i]
+		matched := false
+
+		// جستجو در بک‌تست برای پیدا کردن نزدیک‌ترین ترید
+		for j < len(backtest) {
+			btTrade := backtest[j]
+			diff := liveTrade.OpenTime.Sub(btTrade.OpenTime)
+			if diff < 0 {
+				diff = -diff
+			}
+
+			if diff <= maxDiff && !usedBT[j] {
+				// تطبیق پیدا شد
+				result = append(result, MatchedRow{
+					OpenTime: liveTrade.OpenTime,
+					Live:     &live[i],
+					Backtest: &backtest[j],
+				})
+				usedBT[j] = true
+				matched = true
+				j++
+				break
+			} else if btTrade.OpenTime.Before(liveTrade.OpenTime.Add(-maxDiff)) {
+				// ترید بک‌تست خیلی قدیمی است، دیگر تطبیق نمی‌یابد
+				if !usedBT[j] {
+					result = append(result, MatchedRow{
+						OpenTime: btTrade.OpenTime,
+						Live:     nil,
+						Backtest: &backtest[j],
+					})
+					usedBT[j] = true
+				}
+				j++
+			} else {
+				break
+			}
+		}
+
+		if !matched {
+			// ترید لایو بدون تطبیق
+			result = append(result, MatchedRow{
+				OpenTime: liveTrade.OpenTime,
+				Live:     &live[i],
+				Backtest: nil,
+			})
+		}
+		i++
+	}
+
+	// اضافه کردن تریدهای بک‌تست باقی‌مانده
+	for j < len(backtest) {
+		if !usedBT[j] {
+			result = append(result, MatchedRow{
+				OpenTime: backtest[j].OpenTime,
+				Live:     nil,
+				Backtest: &backtest[j],
+			})
+		}
+		j++
+	}
+
+	// مرتب‌سازی نهایی بر اساس OpenTime
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].OpenTime.Before(result[j].OpenTime)
+	})
+
+	return result
+}
+
+// writeTradeData داده‌های یک ترید را در ستون‌های مشخص می‌نویسد
+func writeTradeData(f *excelize.File, sheetName string, rowNum, startCol int, trade *UnifiedTrade, profitStyle, lossStyle, normalStyle int) {
+	values := []interface{}{
+		trade.Type,
+		trade.Entry,
+		trade.Exit,
+		trade.TP,
+		trade.SL,
+		trade.PnL,
+		trade.ROI,
+	}
+
+	for c, val := range values {
+		cell, _ := excelize.CoordinatesToCellName(startCol+c, rowNum)
+		f.SetCellValue(sheetName, cell, val)
+
+		// استایل بر اساس PnL
+		if c == 5 { // ستون PnL
+			if trade.PnL > 0 {
+				f.SetCellStyle(sheetName, cell, cell, profitStyle)
+			} else if trade.PnL < 0 {
+				f.SetCellStyle(sheetName, cell, cell, lossStyle)
+			} else {
+				f.SetCellStyle(sheetName, cell, cell, normalStyle)
+			}
+		} else {
+			f.SetCellStyle(sheetName, cell, cell, normalStyle)
+		}
+	}
 }

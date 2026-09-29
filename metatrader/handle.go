@@ -344,12 +344,12 @@ func Handle(conn net.Conn) {
 				}
 
 				// تبدیل به فرمت مورد نیاز اکسل
-				excelRows := make([]walking.WalkForwardTrade, 0, len(trades))
+				livetrades := make([]walking.WalkForwardTrade, 0, len(trades))
 				for _, t := range trades {
 
 					fmt.Printf("OpenTime: %s | CloseTime: %s \n", t.OpenTime, t.CloseTime)
 
-					excelRows = append(excelRows, walking.WalkForwardTrade{
+					livetrades = append(livetrades, walking.WalkForwardTrade{
 						EntryTime:  1,
 						ExitTime:   2,
 						Type:       t.Type,
@@ -361,8 +361,25 @@ func Handle(conn net.Conn) {
 					})
 				}
 
+				config := walking.DefaultLiveConfig()
+
+				startTimeObj := time.Now().Add(3 * time.Hour)
+				endTimeObj := time.Now()
+
+				walkingForwardResults := walking.WalkForwardWithBodyGroups(
+					m15Candles,
+					m5Candles,
+					startTimeObj.Unix(),
+					endTimeObj.Unix(),
+					3,
+					1000,
+					10,
+					config.TPRange,
+					config.SLRange,
+				)
+
 				// ۱. ساخت فایل اکسل (با استفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
-				excelData, err := table.GenerateExcelFile(excelRows)
+				excelData, err := table.GenerateExcelFile(livetrades, walkingForwardResults.Trades)
 				if err != nil {
 					log.Println("❌ Error generating Excel:", err)
 					continue
