@@ -31,6 +31,23 @@ type OrderResult struct {
 	Side       string  `json:"side"`
 }
 
+type HistoryTrade struct {
+	Ticket     int64   `json:"ticket"`
+	Symbol     string  `json:"symbol"`
+	Type       string  `json:"type"`
+	Volume     float64 `json:"volume"`
+	OpenPrice  float64 `json:"open_price"`
+	ClosePrice float64 `json:"close_price"`
+	TP         float64 `json:"tp"`
+	SL         float64 `json:"sl"`
+	Profit     float64 `json:"profit"`
+	Swap       float64 `json:"swap"`
+	Commission float64 `json:"commission"`
+	OpenTime   string  `json:"open_time"`
+	CloseTime  string  `json:"close_time"`
+	Comment    string  `json:"comment"`
+}
+
 type SocketResult struct {
 	Type      string          `json:"type"`
 	Timeframe string          `json:"timeframe"`

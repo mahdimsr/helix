@@ -172,6 +172,17 @@ void HandleCommands(int socket)
       {
          ulong ticket = StringToInteger(parts[1]);
          ClosePositionByTicket(ticket);
+      } else if(command == "GET_HISTORY" && n >= 2)
+      {
+         int count = (int)StringToInteger(parts[1]);
+         if(count <= 0) count = 20;
+         
+         string historyJson = GetLastClosedDealsJSON(count);
+         if(historyJson != "")
+         {
+            string envelope = StringFormat("{\"type\":\"HISTORY\",\"data\":%s}\n", historyJson);
+            SendLargeString(envelope);
+         }
       }
       else
       {
@@ -594,4 +605,109 @@ ENUM_ORDER_TYPE_FILLING GetFillingMode(string sym)
     if((filling & SYMBOL_FILLING_IOC) == SYMBOL_FILLING_IOC)
         return ORDER_FILLING_IOC;
     return ORDER_FILLING_RETURN;
+}
+
+string GetLastClosedDealsJSON(int maxCount)
+{
+   // انتخاب تاریخچه ۳۰ روز گذشته
+   HistorySelect(TimeCurrent() - 30*24*60*60, TimeCurrent());
+   int totalDeals = HistoryDealsTotal();
+   
+   string json = "[";
+   int count = 0;
+   
+   // پیمایش از جدیدترین به قدیمی‌ترین
+   for(int i = totalDeals - 1; i >= 0 && count < maxCount; i--)
+   {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket == 0) continue;
+      
+      // فقط Deal های بسته شدن پوزیشن (OUT) را به عنوان نقطه شروع در نظر می‌گیریم
+      if(HistoryDealGetInteger(dealTicket, DEAL_ENTRY) == DEAL_ENTRY_OUT)
+      {
+         if(count > 0) json += ",";
+         
+         ulong positionId = (ulong)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+         double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+         double swap = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+         double commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+         double closePrice = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+         double volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+         string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+         datetime closeTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+         string commentStr = CleanJsonString(HistoryDealGetString(dealTicket, DEAL_COMMENT));
+         
+         // متغیرهای پیش‌فرض
+         double openPrice = 0;
+         double tp = 0;
+         double sl = 0;
+         datetime openTime = closeTime;
+         string typeStr = "UNKNOWN"; // پیش‌فرض
+         
+         // ۱. پیدا کردن Deal ورودی (IN) مربوط به همین پوزیشن
+         for(int j = i; j >= 0; j--)
+         {
+            ulong checkTicket = HistoryDealGetTicket(j);
+            if(checkTicket == 0) continue;
+            
+            if(HistoryDealGetInteger(checkTicket, DEAL_POSITION_ID) == positionId && 
+               HistoryDealGetInteger(checkTicket, DEAL_ENTRY) == DEAL_ENTRY_IN)
+            {
+               openPrice = HistoryDealGetDouble(checkTicket, DEAL_PRICE);
+               openTime = (datetime)HistoryDealGetInteger(checkTicket, DEAL_TIME);
+               
+               // ✅ اصلاح مهم: خواندن نوع معامله از Deal ورودی (نه خروجی)
+               ENUM_DEAL_TYPE inDealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(checkTicket, DEAL_TYPE);
+               typeStr = (inDealType == DEAL_TYPE_BUY) ? "BUY" : "SELL";
+               
+               // ۲. خواندن TP و SL از ORDER اولیه
+               ulong openOrderTicket = (ulong)HistoryDealGetInteger(checkTicket, DEAL_ORDER);
+               if(HistoryOrderSelect(openOrderTicket))
+               {
+                  tp = HistoryOrderGetDouble(openOrderTicket, ORDER_TP);
+                  sl = HistoryOrderGetDouble(openOrderTicket, ORDER_SL);
+               }
+               
+               break; // اطلاعات باز شدن پیدا شد، حلقه داخلی را بشکن
+            }
+         }
+         
+         json += StringFormat(
+            "{" +
+            "\"ticket\":%I64u," +
+            "\"symbol\":\"%s\"," +
+            "\"type\":\"%s\"," +
+            "\"volume\":%.2f," +
+            "\"open_price\":%.5f," +
+            "\"close_price\":%.5f," +
+            "\"tp\":%.5f," +
+            "\"sl\":%.5f," +
+            "\"profit\":%.2f," +
+            "\"swap\":%.2f," +
+            "\"commission\":%.2f," +
+            "\"open_time\":\"%s\"," +
+            "\"close_time\":\"%s\"," +
+            "\"comment\":\"%s\"" +
+            "}",
+            positionId,
+            symbol,
+            typeStr, // ✅ حالا مقدار درست (BUY یا SELL واقعی) ارسال می‌شود
+            volume,
+            openPrice,
+            closePrice,
+            tp,
+            sl,
+            profit,
+            swap,
+            commission,
+            TimeToString(openTime, TIME_DATE|TIME_MINUTES),
+            TimeToString(closeTime, TIME_DATE|TIME_MINUTES),
+            commentStr
+         );
+         
+         count++;
+      }
+   }
+   json += "]";
+   return json;
 }

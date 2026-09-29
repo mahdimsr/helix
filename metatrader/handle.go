@@ -7,15 +7,24 @@ import (
 	"helix/indicators"
 	"helix/models"
 	"helix/notification"
+	"helix/table"
+	"helix/walking"
 	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
+)
+
+var (
+	m15Candles []models.Candle
+	m5Candles  []models.Candle
+	mu         sync.Mutex
 )
 
 func Handle(conn net.Conn) {
@@ -31,12 +40,18 @@ func Handle(conn net.Conn) {
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
+	ticker5m := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
 	tickerSec := time.NewTicker(3 * time.Second)
 	defer tickerSec.Stop()
 
+	ticker3h := time.NewTicker(5 * time.Second)
+	defer ticker3h.Stop()
+
 	_ = godotenv.Load()
 
-	symbol := "XAUUSD"
+	symbol := "XAUUSD.ecn"
 	timeframe := "PERIOD_M15"
 	candlesCount := 10
 
@@ -69,6 +84,8 @@ func Handle(conn net.Conn) {
 				time.Sleep(50 * time.Millisecond)
 				inquiryOpenOrders(*client, ticketRepo)
 			}
+		case <-ticker5m.C:
+			requestCandles(*client, symbol, "PERIOD_M5", 3*candlesCount)
 		case <-ticker.C:
 
 			fmt.Println("Requesting Candle")
@@ -78,6 +95,9 @@ func Handle(conn net.Conn) {
 
 			fmt.Println("Inquiry Order")
 			inquiryOpenOrders(*client, ticketRepo)
+		case <-ticker3h.C:
+			log.Println("⏰ 3-Hour Report Triggered: Requesting trade history...")
+			requestHistory(*client, 20)
 		case err := <-readErr:
 			if err == io.EOF {
 				log.Println("connection closed by EA (EOF)")
@@ -106,7 +126,15 @@ func Handle(conn net.Conn) {
 
 				fmt.Printf("Fetch %d candles \n", len(candles))
 
-				evaluateStrategy(symbol, candles, *client, ticketRepo)
+				if result.Timeframe == "M15" || result.Timeframe == "PERIOD_M15" {
+
+					m15Candles = candles
+					evaluateStrategy(symbol, m15Candles, *client, ticketRepo)
+
+				} else if result.Timeframe == "M5" || result.Timeframe == "PERIOD_M5" {
+					m5Candles = candles
+					fmt.Printf("✅ M5 Candles Updated in background. Total: %d\n", len(m5Candles))
+				}
 
 			}
 
@@ -294,6 +322,82 @@ func Handle(conn net.Conn) {
 					if err != nil {
 						fmt.Println("Remove Ticket error: ", err)
 					}
+				}
+			}
+
+			// ➕ کیس جدید برای دریافت تاریخچه
+			if result.Type == "HISTORY" {
+				log.Println("📥 Received trade history from MT5")
+
+				var trades []HistoryTrade
+				// فرض بر این است که result.Data به صورت raw json array است
+				// اگر ساختار SocketResult شما متفاوت است، آن را تطبیق دهید
+				dataBytes, _ := json.Marshal(result.Data)
+				if err := json.Unmarshal(dataBytes, &trades); err != nil {
+					log.Println("❌ Failed to parse history JSON:", err)
+					continue
+				}
+
+				if len(trades) == 0 {
+					log.Println("⚠️ No closed trades found in the requested period.")
+					continue
+				}
+
+				// تبدیل به فرمت مورد نیاز اکسل
+				excelRows := make([]walking.WalkForwardTrade, 0, len(trades))
+				for _, t := range trades {
+
+					fmt.Printf("OpenTime: %s | CloseTime: %s \n", t.OpenTime, t.CloseTime)
+
+					excelRows = append(excelRows, walking.WalkForwardTrade{
+						EntryTime:  1,
+						ExitTime:   2,
+						Type:       t.Type,
+						EntryPrice: t.OpenPrice,
+						ExitPrice:  t.ClosePrice,
+						TP:         t.TP,
+						SL:         t.SL,
+						PnL:        t.Profit,
+					})
+				}
+
+				// ۱. ساخت فایل اکسل (با استفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
+				excelData, err := table.GenerateExcelFile(excelRows)
+				if err != nil {
+					log.Println("❌ Error generating Excel:", err)
+					continue
+				}
+
+				// ۲. ارسال به تلگرام
+				telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
+				telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
+
+				// محاسبه خلاصه آمار
+				totalPnL := 0.0
+				winCount := 0
+				for _, t := range trades {
+					totalPnL += t.Profit
+					if t.Profit > 0 {
+						winCount++
+					}
+				}
+				winRate := float64(winCount) / float64(len(trades)) * 100
+
+				caption := fmt.Sprintf(
+					"📊 *گزارش دوره‌ای (۳ ساعته)*\n"+
+						"📈 تعداد ترید: %d\n"+
+						"✅ وین‌ریت: %.1f%%\n"+
+						"💰 سود/ضرر خالص: $%.2f\n"+
+						"🕒 زمان گزارش: %s",
+					len(trades), winRate, totalPnL, time.Now().Format("2006-01-02 15:04"),
+				)
+
+				// استفاده از تابع SendExcelToTelegram که قبلاً طراحی کردیم
+				err = table.SendExcelToTelegram(telegramApiKey, telegramChatId, excelData, caption)
+				if err != nil {
+					log.Println("❌ Failed to send Excel to Telegram:", err)
+				} else {
+					log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
 				}
 			}
 		}
@@ -497,5 +601,13 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 			fmt.Println("⏸️ No valid signal detected based on Walk-Forward logic.")
 		}
 	}
-
+}
+func requestHistory(client MTClient, count int) {
+	cmd := fmt.Sprintf("GET_HISTORY|%d\n", count)
+	err := client.SendCommand(cmd)
+	if err != nil {
+		log.Println("❌ Failed to request history:", err)
+	} else {
+		log.Printf("📊 Requested last %d closed trades from MT5", count)
+	}
 }
