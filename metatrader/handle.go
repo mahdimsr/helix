@@ -151,12 +151,13 @@ func Handle(conn net.Conn) {
 					log.Printf("Pnl : %.2f", profitFloat)
 
 					// by pnl
-					if profitFloat > 7 {
+					/*if profitFloat > 7 {
 						closeOrder(*client, order.Ticket)
 					}
+
 					if profitFloat < -5 {
 						closeOrder(*client, order.Ticket)
-					}
+					}*/
 
 					// by percentage
 					if progressPercent >= 90 {
