@@ -366,19 +366,21 @@ func Handle(conn net.Conn) {
 				startTimeObj := time.Now().Add(3 * time.Hour)
 				endTimeObj := time.Now()
 
-				walkingForwardResults := walking.WalkForwardWithBodyGroups(
+				walkingForwardResults := walking.WalkForwardWithBodyGroupsLive(
 					m15Candles,
 					m5Candles,
 					startTimeObj.Unix(),
 					endTimeObj.Unix(),
-					3,
 					1000,
 					10,
 					config.TPRange,
 					config.SLRange,
 				)
 
-				// ۱. ساخت فایل اکسل (با استفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
+				walking.PrintWalkForwardTrades(walkingForwardResults)
+
+				// ۱. ساخت فایل اکسل (با اس
+				//تفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
 				excelData, err := table.GenerateExcelFile(livetrades, walkingForwardResults.Trades)
 				if err != nil {
 					log.Println("❌ Error generating Excel:", err)
