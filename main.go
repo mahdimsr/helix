@@ -39,7 +39,7 @@ func main() {
 
 		log.Printf("⌚ Next execution at: %s (waiting %v)", nextRun.Format(time.RFC3339), waitDuration)
 
-		time.Sleep(waitDuration)
+		//time.Sleep(waitDuration)
 
 		go metatrader.Handle(conn)
 	}

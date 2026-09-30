@@ -53,7 +53,7 @@ type BodyGroup struct {
 type WindowGroups struct {
 	WindowStart int64
 	WindowEnd   int64
-	Groups      [5]BodyGroup // 5 گروه: 0.2-0.4, 0.4-0.6, 0.6-0.8, 0.8-1.0, >1.0
+	Groups      [6]BodyGroup // 5 گروه: 0.2-0.4, 0.4-0.6, 0.6-0.8, 0.8-1.0, >1.0
 }
 
 func filterCandlesByTime(candles []models.Candle, start, end int64) []models.Candle {
@@ -73,8 +73,10 @@ func filterCandlesByTime(candles []models.Candle, start, end int64) []models.Can
 
 func filterLTFCandlesForTrading(ltfCandles []models.Candle, entryTime, windowEnd int64) []models.Candle {
 	var filtered []models.Candle
+	const fifteenMinutesInSeconds = 15 * 60
+
 	for _, c := range ltfCandles {
-		if c.Time > entryTime && c.Time <= windowEnd {
+		if c.Time > entryTime+fifteenMinutesInSeconds && c.Time <= windowEnd {
 			filtered = append(filtered, c)
 		}
 	}
@@ -465,14 +467,16 @@ func GetBodyGroupIndex(candle *models.Candle) int {
 	bodyPercent := candle.BodyPercentage()
 
 	if bodyPercent >= 1.0 {
-		return 4 // > 1.0%
+		return 5 // > 1.0%
 	} else if bodyPercent >= 0.8 {
-		return 3 // 0.8% - 1.0%
+		return 4 // 0.8% - 1.0%
 	} else if bodyPercent >= 0.6 {
-		return 2 // 0.6% - 0.8%
+		return 3 // 0.6% - 0.8%
 	} else if bodyPercent >= 0.4 {
-		return 1 // 0.4% - 0.6%
+		return 2 // 0.4% - 0.6%
 	} else if bodyPercent >= 0.2 {
+		return 1 // 0.2% - 0.4%
+	} else if bodyPercent >= 0.1 {
 		return 0 // 0.2% - 0.4%
 	}
 	return -1 // کمتر از 0.2% (نباید وارد معامله شود)
@@ -481,14 +485,16 @@ func GetBodyGroupIndex(candle *models.Candle) int {
 func GetGroupRange(groupIdx int) (float64, float64) {
 	switch groupIdx {
 	case 0:
-		return 0.2, 0.4
+		return 0.1, 0.2
 	case 1:
-		return 0.4, 0.6
+		return 0.2, 0.4
 	case 2:
-		return 0.6, 0.8
+		return 0.4, 0.6
 	case 3:
-		return 0.8, 1.0
+		return 0.6, 0.8
 	case 4:
+		return 0.8, 1.0
+	case 5:
 		return 1.0, 100.0 // بزرگتر از 1.0%
 	default:
 		return 0, 0
@@ -578,7 +584,7 @@ func WalkForwardWithBodyGroups(
 		if len(htfWindow) > 0 && len(ltfWindow) > 0 {
 			fmt.Printf("   🔄 ترید با ترکیب‌های گروه‌بندی شده...\n")
 
-			trades := executeTradesWithBodyGroups(
+			trades := executeTradesWithBodyGroupsLive(
 				htfWindow, ltfWindow, currentCapital, leverage, currentWindowGroups, win.End)
 
 			windowPnL := 0.0
@@ -608,6 +614,98 @@ func WalkForwardWithBodyGroups(
 			printGroupCombinations(currentWindowGroups)
 		}
 	}
+
+	result := &WalkForwardResult{
+		Trades:      allTrades,
+		TotalTrades: len(allTrades),
+	}
+
+	for _, t := range allTrades {
+		result.TotalPnL += t.PnL
+		if t.Status == "TP" {
+			result.WinCount++
+		}
+	}
+
+	if result.TotalTrades > 0 {
+		result.WinRate = (float64(result.WinCount) / float64(result.TotalTrades)) * 100
+	}
+
+	fmt.Println("\n═════════════════════════════════════════════════════════")
+	fmt.Println("📋 خلاصه نهایی پیمایش پنجره‌ای با گروه‌بندی:")
+	fmt.Printf("   کل تریدها: %d\n", result.TotalTrades)
+	fmt.Printf("   تریدهای برنده: %d\n", result.WinCount)
+	fmt.Printf("   Win Rate: %.1f%%\n", result.WinRate)
+	fmt.Printf("   سود خالص کل: $%.2f\n", result.TotalPnL)
+	fmt.Printf("   سرمایه نهایی: $%.2f\n", initialCapital+result.TotalPnL)
+	fmt.Println("═════════════════════════════════════════════════════════")
+
+	return result
+}
+
+func WalkForwardWithBodyGroupsLive(
+	htfCandles []models.Candle,
+	ltfCandles []models.Candle,
+	startTime int64,
+	endTime int64,
+	initialCapital float64,
+	leverage float64,
+	tpRange []float64,
+	slRange []float64,
+) *WalkForwardResult {
+
+	htfCandles = NormalizeCandleTimes(htfCandles)
+	ltfCandles = NormalizeCandleTimes(ltfCandles)
+	startTime = NormalizeTimestamp(startTime)
+	endTime = NormalizeTimestamp(endTime)
+
+	var allTrades []WalkForwardTrade
+	currentCapital := initialCapital
+
+	fmt.Println("WHATTTTTTTTTTT WROMGGGGGGGGGGGGG")
+	fmt.Printf("Count HTF: %d | LTF: %d", len(htfCandles), len(ltfCandles))
+
+	// بخش 1: ترید با ترکیب‌های گروه‌بندی شده پنجره قبلی
+
+	var groups WindowGroups
+	for groupIdx := 0; groupIdx < 6; groupIdx++ {
+		minPercent, maxPercent := GetGroupRange(groupIdx)
+
+		groups.Groups[groupIdx] = BodyGroup{
+			Index:      groupIdx,
+			MinPercent: minPercent,
+			MaxPercent: maxPercent,
+		}
+
+		groups.Groups[groupIdx].BestTP = 10
+		groups.Groups[groupIdx].BestSL = 2
+		groups.Groups[groupIdx].BestScore = 100
+	}
+
+	fmt.Printf("   🔄 ترید با ترکیب‌های گروه‌بندی شده...\n")
+
+	trades := executeTradesWithBodyGroupsLive(
+		htfCandles,
+		ltfCandles,
+		currentCapital,
+		leverage,
+		groups,
+		time.Now().Unix())
+
+	windowPnL := 0.0
+	windowWins := 0
+	for idx := range trades {
+		windowPnL += trades[idx].PnL
+		currentCapital += trades[idx].PnL
+		if trades[idx].Status == "TP" {
+			windowWins++
+		}
+	}
+
+	fmt.Printf("   📊 %d ترید | سود پنجره: $%.2f | برد: %d\n",
+		len(trades), windowPnL, windowWins)
+
+	allTrades = append(allTrades, trades...)
 
 	result := &WalkForwardResult{
 		Trades:      allTrades,
@@ -854,6 +952,180 @@ func executeTradesWithBodyGroups(
 	return trades
 }
 
+func executeTradesWithBodyGroupsLive(
+	htfWindow []models.Candle,
+	ltfAll []models.Candle,
+	initialCapital float64,
+	leverage float64,
+	groups WindowGroups,
+	windowEnd int64,
+) []WalkForwardTrade {
+
+	var trades []WalkForwardTrade
+	currentCapital := initialCapital
+
+	// ✅ برعکس کردن آرایه‌ها تا قدیمی‌ترین کندل در اندیس ۰ قرار گیرد (ترتیب زمانی صحیح)
+	reverseCandles(htfWindow)
+	reverseCandles(ltfAll)
+
+	var lastCloseTime int64 = 0
+
+	for _, htf := range htfWindow {
+		if currentCapital <= 0 {
+			break
+		}
+
+		if htf.Time < lastCloseTime {
+			continue
+		}
+
+		// 🔍 لاگ ۱: بررسی Marubozu
+		if !htf.IsMarubozu() {
+			// fmt.Printf("   ⏭️ رد شد (زمان %s): کندل Marubozu نیست (Body: %.2f%%)\n",
+			// 	time.Unix(htf.Time, 0).Format("15:04"), htf.BodyPercentage()*100)
+			continue
+		}
+
+		var tradeType string
+		if htf.IsGreen() {
+			tradeType = "Short"
+		} else if htf.IsRed() {
+			tradeType = "Long"
+		} else {
+			continue
+		}
+
+		groupIdx := GetBodyGroupIndex(&htf)
+
+		// 🔍 لاگ ۲: بررسی اندازه بدنه
+		if groupIdx < 0 {
+			// fmt.Printf("   ⏭️ رد شد (زمان %s): بدنه کندل کمتر از 0.1%% است\n",
+			// 	time.Unix(htf.Time, 0).Format("15:04"))
+			continue
+		}
+
+		group := groups.Groups[groupIdx]
+
+		// 🔍 لاگ ۳: بررسی وجود TP/SL
+		if group.BestTP == 0 || group.BestSL == 0 {
+			// fmt.Printf("   ⏭️ رد شد (زمان %s): گروه %d مقدار TP/SL ندارد\n",
+			// 	time.Unix(htf.Time, 0).Format("15:04"), groupIdx)
+			continue
+		}
+
+		// ✅ اگر به اینجا رسیدیم، ترید انجام می‌شود!
+		fmt.Printf("   ✅ ترید شناسایی شد (زمان %s): نوع=%s, گروه=%d, TP=%.0f, SL=%.0f\n",
+			time.Unix(htf.Time, 0).Format("15:04"), tradeType, groupIdx, group.BestTP, group.BestSL)
+
+		tpUSD := group.BestTP
+		slUSD := group.BestSL
+
+		entryPrice := htf.Close
+		if entryPrice == 0 {
+			continue
+		}
+		entryTime := htf.Time
+
+		quantity := (currentCapital * leverage) / entryPrice
+		priceDistTP := tpUSD / quantity
+		priceDistSL := slUSD / quantity
+
+		var tpPrice, slPrice float64
+		if tradeType == "Long" {
+			tpPrice = entryPrice + priceDistTP
+			slPrice = entryPrice - priceDistSL
+		} else {
+			tpPrice = entryPrice - priceDistTP
+			slPrice = entryPrice + priceDistSL
+		}
+
+		ltfForTrade := filterLTFCandlesForTrading(ltfAll, entryTime, windowEnd)
+
+		// ✅ نکته حیاتی: چون ltfAll برعکس بود، ltfForTrade هم برعکس است.
+		// برای اینکه در حلقه زیر، کندل‌ها را به ترتیب زمانی (از قدیم به جدید) بررسی کنیم
+		// تا بدانیم اول به TP رسیده یا SL، باید این آرایه را هم برعکس کنیم.
+		reverseCandles(ltfForTrade)
+
+		var status string
+		var exitPrice float64
+		var exitTime int64
+
+		for _, ltf := range ltfForTrade {
+			hitTP := false
+			hitSL := false
+
+			if tradeType == "Long" {
+				if ltf.High >= tpPrice {
+					hitTP = true
+				}
+				if ltf.Low <= slPrice {
+					hitSL = true
+				}
+			} else {
+				if ltf.Low <= tpPrice {
+					hitTP = true
+				}
+				if ltf.High >= slPrice {
+					hitSL = true
+				}
+			}
+
+			if hitTP && hitSL {
+				status = "SL"
+				exitPrice = slPrice
+				exitTime = ltf.Time
+				break
+			} else if hitTP {
+				status = "TP"
+				exitPrice = tpPrice
+				exitTime = ltf.Time
+				break
+			} else if hitSL {
+				status = "SL"
+				exitPrice = slPrice
+				exitTime = ltf.Time
+				break
+			}
+		}
+
+		if status == "" {
+			if len(ltfForTrade) > 0 {
+				lastLtf := ltfForTrade[len(ltfForTrade)-1]
+				exitPrice = lastLtf.Close
+				exitTime = lastLtf.Time
+			} else {
+				exitPrice = entryPrice
+				exitTime = entryTime
+			}
+			status = "TIME_EXIT"
+		}
+
+		var pnl float64
+		if tradeType == "Long" {
+			pnl = (exitPrice - entryPrice) * quantity
+		} else {
+			pnl = (entryPrice - exitPrice) * quantity
+		}
+
+		currentCapital += pnl
+		lastCloseTime = exitTime
+
+		trades = append(trades, WalkForwardTrade{
+			EntryTime:  entryTime,
+			ExitTime:   exitTime,
+			Type:       tradeType,
+			EntryPrice: entryPrice,
+			ExitPrice:  exitPrice,
+			TP:         tpUSD,
+			SL:         slUSD,
+			PnL:        pnl,
+			Status:     status,
+		})
+	}
+
+	return trades
+}
+
 // LiveSignalResult ساختار خروجی برای ربات لایو
 type LiveSignalResult struct {
 	Trade  string // "BUY", "SELL", "NONE"
@@ -973,4 +1245,10 @@ func makeRange(from, to, step float64) []float64 {
 		result = append(result, i)
 	}
 	return result
+}
+
+func reverseCandles(candles []models.Candle) {
+	for i, j := 0, len(candles)-1; i < j; i, j = i+1, j-1 {
+		candles[i], candles[j] = candles[j], candles[i]
+	}
 }
