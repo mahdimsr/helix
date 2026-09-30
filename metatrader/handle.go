@@ -66,15 +66,17 @@ func Handle(conn net.Conn) {
 		select {
 		case <-tickerSec.C:
 			if ticketRepo.Count() > 0 {
-				time.Sleep(50 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 				inquiryOpenOrders(*client, ticketRepo)
 			}
 		case <-ticker.C:
 
+			time.Sleep(500 * time.Millisecond)
+
 			fmt.Println("Requesting Candle")
 			requestCandles(*client, symbol, timeframe, candlesCount)
 
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 
 			fmt.Println("Inquiry Order")
 			inquiryOpenOrders(*client, ticketRepo)
