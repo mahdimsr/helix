@@ -36,6 +36,46 @@ type MatchedRow struct {
 	Backtest *UnifiedTrade // nil اگر ترید بک‌تست وجود نداشته باشد
 }
 
+// calculateSimilarity درصد شباهت بین دو عدد را محاسبه می‌کند
+// (این تابع به‌طور خودکار اعداد منفی مثل PnL را هم به‌درستی مدیریت می‌کند)
+func calculateSimilarity(liveVal, btVal float64) float64 {
+	if liveVal == 0 {
+		if btVal == 0 {
+			return 100.0 // هر دو صفر هستند، پس کاملاً شبیه‌اند
+		}
+		return 0.0 // یکی صفر و دیگری غیرصفر است، شباهتی ندارند
+	}
+
+	diff := math.Abs(liveVal - btVal)
+	// استفاده از math.Abs برای مخرج، باعث می‌شود اگر PnL منفی باشد، تقسیم بر عدد منفی انجام نشود
+	diffPercent := (diff / math.Abs(liveVal)) * 100.0
+	similarity := 100.0 - diffPercent
+
+	// جلوگیری از منفی شدن درصد در صورت اختلاف بسیار فاحش
+	if similarity < 0 {
+		return 0.0
+	}
+	return similarity
+}
+
+// calculateRowSimilarity میانگین شباهت ۵ پارامتر کلیدی را محاسبه می‌کند
+func calculateRowSimilarity(live, bt *UnifiedTrade) float64 {
+	if live == nil || bt == nil {
+		return 0.0
+	}
+
+	simEntry := calculateSimilarity(live.Entry, bt.Entry)
+	simExit := calculateSimilarity(live.Exit, bt.Exit)
+	simTP := calculateSimilarity(live.TP, bt.TP)
+	simSL := calculateSimilarity(live.SL, bt.SL)
+	simPnL := calculateSimilarity(live.PnL, bt.PnL) // ✅ پارامتر جدید اضافه شد
+
+	// ✅ میانگین‌گیری بر روی ۵ پارامتر
+	return (simEntry + simExit + simTP + simSL + simPnL) / 5.0
+}
+
+// ---------------------------------------------------------
+
 func GenerateExcelFile(liveTrades []walking.WalkForwardTrade, backtestTrades []walking.WalkForwardTrade) ([]byte, error) {
 
 	// ۱. تبدیل هر دو لیست به فرمت یکپارچه
@@ -62,11 +102,11 @@ func GenerateExcelFile(liveTrades []walking.WalkForwardTrade, backtestTrades []w
 	f.SetActiveSheet(index)
 	f.DeleteSheet("Sheet1")
 
-	// ۵. هدرها (دقیقاً ۱۵ ستون)
+	// ۵. هدرها (اکنون ۱۶ ستون)
 	headers := []string{
 		"Live_Open_Time", "Live_Type", "Live_Entry", "Live_Exit", "Live_TP", "Live_SL", "Live_PnL",
 		"BT_Open_Time", "BT_Type", "BT_Entry", "BT_Exit", "BT_TP", "BT_SL", "BT_PnL",
-		"Match",
+		"Match", "Similarity (%)", // ✅ ستون جدید اضافه شد
 	}
 
 	for i, h := range headers {
@@ -93,11 +133,12 @@ func GenerateExcelFile(liveTrades []walking.WalkForwardTrade, backtestTrades []w
 
 	for i := 0; i < len(headers); i++ {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-		if i == len(headers)-1 {
+		// ستون‌های ۱۵ و ۱۶ (Match و Similarity) خاکستری
+		if i >= 14 {
 			f.SetCellStyle(sheetName, cell, cell, headerStyleNeutral)
-		} else if i < 7 {
+		} else if i < 7 { // ستون‌های ۱ تا ۷ (Live)
 			f.SetCellStyle(sheetName, cell, cell, headerStyleLive)
-		} else {
+		} else { // ستون‌های ۸ تا ۱۴ (Backtest)
 			f.SetCellStyle(sheetName, cell, cell, headerStyleBT)
 		}
 	}
@@ -127,25 +168,42 @@ func GenerateExcelFile(liveTrades []walking.WalkForwardTrade, backtestTrades []w
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 
-	// ✅ استایل‌های جدید برای ستون‌های نظیر (با رنگ‌های ملایم)
+	// استایل‌های ستون‌های نظیر
 	entryStyle, _ := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Color: "#404040"},
-		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#F2F2F2"}}, // خاکستری کمرنگ
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#F2F2F2"}},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 	exitStyle, _ := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Color: "#7F6000"},
-		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFF2CC"}}, // زرد کمرنگ
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFF2CC"}},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 	tpStyle, _ := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Color: "#1F4E79"},
-		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#DEEAF6"}}, // آبی کمرنگ
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#DEEAF6"}},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 	slStyle, _ := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Color: "#C65911"},
-		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FCE4D6"}}, // نارنجی کمرنگ
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FCE4D6"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+
+	// ✅ استایل‌های جدید برای ستون درصد شباهت (رنگ‌بندی شرطی)
+	highSimStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#006100"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#C6EFCE"}}, // سبز
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	medSimStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#7F6000"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFF2CC"}}, // زرد
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	lowSimStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#9C0006"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFC7CE"}}, // قرمز
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 
@@ -184,29 +242,50 @@ func GenerateExcelFile(liveTrades []walking.WalkForwardTrade, backtestTrades []w
 		}
 
 		// --- بخش Match (ستون ۱۵) ---
-		cell, _ := excelize.CoordinatesToCellName(15, rowNum)
+		cellMatch, _ := excelize.CoordinatesToCellName(15, rowNum)
 		if row.Live != nil && row.Backtest != nil {
-			f.SetCellValue(sheetName, cell, "✅")
-			f.SetCellStyle(sheetName, cell, cell, matchStyle)
+			f.SetCellValue(sheetName, cellMatch, "✅")
+			f.SetCellStyle(sheetName, cellMatch, cellMatch, matchStyle)
 		} else {
-			f.SetCellValue(sheetName, cell, "❌")
-			f.SetCellStyle(sheetName, cell, cell, mismatchStyle)
+			f.SetCellValue(sheetName, cellMatch, "❌")
+			f.SetCellStyle(sheetName, cellMatch, cellMatch, mismatchStyle)
+		}
+
+		// --- ✅ بخش درصد شباهت (ستون ۱۶) ---
+		cellSim, _ := excelize.CoordinatesToCellName(16, rowNum)
+		if row.Live != nil && row.Backtest != nil {
+			similarity := calculateRowSimilarity(row.Live, row.Backtest)
+			f.SetCellValue(sheetName, cellSim, fmt.Sprintf("%.1f%%", similarity))
+
+			// اعمال رنگ‌بندی شرطی بر اساس مقدار شباهت
+			var simStyle int
+			if similarity >= 95.0 {
+				simStyle = highSimStyle
+			} else if similarity >= 80.0 {
+				simStyle = medSimStyle
+			} else {
+				simStyle = lowSimStyle
+			}
+			f.SetCellStyle(sheetName, cellSim, cellSim, simStyle)
+		} else {
+			f.SetCellValue(sheetName, cellSim, "-")
+			f.SetCellStyle(sheetName, cellSim, cellSim, normalStyle)
 		}
 	}
 
-	// ۹. تنظیم عرض ستون‌ها
+	// ۹. تنظیم عرض ستون‌ها (۱۶ ستون از A تا P)
 	colWidths := map[string]float64{
 		"A": 20, "B": 10, "C": 10, "D": 10, "E": 10, "F": 10, "G": 10,
 		"H": 20, "I": 10, "J": 10, "K": 10, "L": 10, "M": 10, "N": 10,
-		"O": 8,
+		"O": 8, "P": 14, // ✅ عرض ستون Similarity اضافه شد
 	}
 	for col, w := range colWidths {
 		f.SetColWidth(sheetName, col, col, w)
 	}
 
-	// ۱۰. فیلتر خودکار
+	// ۱۰. فیلتر خودکار (از A1 تا P)
 	lastRow := len(matchedRows) + 1
-	f.AutoFilter(sheetName, fmt.Sprintf("A1:O%d", lastRow), nil)
+	f.AutoFilter(sheetName, fmt.Sprintf("A1:P%d", lastRow), nil)
 
 	// ۱۱. خروجی به []byte
 	buf, err := f.WriteToBuffer()
@@ -216,7 +295,7 @@ func GenerateExcelFile(liveTrades []walking.WalkForwardTrade, backtestTrades []w
 	return buf.Bytes(), nil
 }
 
-// writeTradeDataAdjusted نسخه‌ی اصلاح‌شده با رنگ‌بندی ستون‌های نظیر
+// writeTradeDataAdjusted (بدون تغییر نسبت به نسخه قبلی شما)
 func writeTradeDataAdjusted(f *excelize.File, sheetName string, rowNum, startCol int, trade *UnifiedTrade, profitStyle, lossStyle, normalStyle, entryStyle, exitStyle, tpStyle, slStyle int) {
 	values := []interface{}{
 		trade.Type,
@@ -231,7 +310,6 @@ func writeTradeDataAdjusted(f *excelize.File, sheetName string, rowNum, startCol
 		cell, _ := excelize.CoordinatesToCellName(startCol+c, rowNum)
 		f.SetCellValue(sheetName, cell, val)
 
-		// انتخاب استایل بر اساس ستون
 		var styleID int
 		switch c {
 		case 0: // Type
@@ -244,7 +322,7 @@ func writeTradeDataAdjusted(f *excelize.File, sheetName string, rowNum, startCol
 			styleID = tpStyle
 		case 4: // SL
 			styleID = slStyle
-		case 5: // PnL (استایل شرطی)
+		case 5: // PnL
 			if trade.PnL > 0 {
 				styleID = profitStyle
 			} else if trade.PnL < 0 {
@@ -253,7 +331,6 @@ func writeTradeDataAdjusted(f *excelize.File, sheetName string, rowNum, startCol
 				styleID = normalStyle
 			}
 		}
-
 		f.SetCellStyle(sheetName, cell, cell, styleID)
 	}
 }
