@@ -15,16 +15,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
-)
-
-var (
-	m15Candles []models.Candle
-	m5Candles  []models.Candle
-	mu         sync.Mutex
 )
 
 func Handle(conn net.Conn) {
@@ -37,23 +30,20 @@ func Handle(conn net.Conn) {
 	}(conn)
 	client := NewMT5Client(conn)
 
-	ticker := time.NewTicker(3 * time.Second)
-	defer ticker.Stop()
-
-	ticker5m := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
 	tickerSec := time.NewTicker(3 * time.Second)
 	defer tickerSec.Stop()
 
-	ticker3h := time.NewTicker(7 * time.Second)
+	ticker3h := time.NewTicker(3 * time.Hour)
 	defer ticker3h.Stop()
 
 	_ = godotenv.Load()
 
 	symbol := "XAUUSD"
 	timeframe := "PERIOD_M15"
-	candlesCount := 500
+	candlesCount := 200
 
 	ticketRepo, err := database.NewFileRepository("tickets.json")
 	if err != nil {
@@ -81,25 +71,22 @@ func Handle(conn net.Conn) {
 		select {
 		case <-tickerSec.C:
 			if ticketRepo.Count() > 0 {
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				inquiryOpenOrders(*client, ticketRepo)
 			}
-		case <-ticker5m.C:
-			requestCandles(*client, symbol, "PERIOD_M5", 3*candlesCount)
+		case <-ticker3h.C:
+			requestHistory(*client, 20)
 		case <-ticker.C:
 
+			fmt.Println("Requesting Candle")
 			time.Sleep(500 * time.Millisecond)
 
-			fmt.Println("Requesting Candle")
 			requestCandles(*client, symbol, timeframe, candlesCount)
 
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 
 			fmt.Println("Inquiry Order")
 			inquiryOpenOrders(*client, ticketRepo)
-		case <-ticker3h.C:
-			log.Println("⏰ 3-Hour Report Triggered: Requesting trade history...")
-			requestHistory(*client, 20)
 		case err := <-readErr:
 			if err == io.EOF {
 				log.Println("connection closed by EA (EOF)")
@@ -128,15 +115,7 @@ func Handle(conn net.Conn) {
 
 				fmt.Printf("Fetch %d candles \n", len(candles))
 
-				if result.Timeframe == "M15" || result.Timeframe == "PERIOD_M15" {
-
-					m15Candles = candles
-					evaluateStrategy(symbol, m15Candles, *client, ticketRepo)
-
-				} else if result.Timeframe == "M5" || result.Timeframe == "PERIOD_M5" {
-					m5Candles = candles
-					fmt.Printf("✅ M5 Candles Updated in background. Total: %d\n", len(m5Candles))
-				}
+				evaluateStrategy(symbol, candles, *client, ticketRepo)
 
 			}
 
@@ -327,7 +306,6 @@ func Handle(conn net.Conn) {
 				}
 			}
 
-			// ➕ کیس جدید برای دریافت تاریخچه
 			if result.Type == "HISTORY" {
 				log.Println("📥 Received trade history from MT5")
 
@@ -361,7 +339,7 @@ func Handle(conn net.Conn) {
 					})
 				}
 
-				config := walking.DefaultLiveConfig()
+				/*config := walking.DefaultLiveConfig()
 
 				startTimeObj := time.Now().Add(-3 * time.Hour)
 				endTimeObj := time.Now()
@@ -377,7 +355,7 @@ func Handle(conn net.Conn) {
 					config.SLRange,
 				)
 
-				walking.PrintWalkForwardTrades(walkingForwardResults)
+				walking.PrintWalkForwardTrades(walkingForwardResults)*/
 
 				// ۱. ساخت فایل اکسل (با اس
 				//تفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
@@ -620,7 +598,9 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 			fmt.Println("⏸️ No valid signal detected based on Walk-Forward logic.")
 		}
 	}
+
 }
+
 func requestHistory(client MTClient, count int) {
 	cmd := fmt.Sprintf("GET_HISTORY|%d\n", count)
 	err := client.SendCommand(cmd)

@@ -8,10 +8,12 @@ import (
 	"math"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -350,8 +352,10 @@ func SendExcelToTelegram(botToken, chatID string, fileData []byte, caption strin
 		writer.WriteField("caption", caption)
 	}
 
+	_ = godotenv.Load()
+	appName := os.Getenv("APP_NAME")
 	// فیلد فایل
-	part, err := writer.CreateFormFile("document", "trades_report.xlsx")
+	part, err := writer.CreateFormFile("document", fmt.Sprintf("%s_report.xlsx", appName))
 	if err != nil {
 		return err
 	}
