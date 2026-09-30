@@ -685,8 +685,8 @@ string GetLastClosedDealsJSON(int maxCount)
             "\"profit\":%.2f," +
             "\"swap\":%.2f," +
             "\"commission\":%.2f," +
-            "\"open_time\":\"%s\"," +
-            "\"close_time\":\"%s\"," +
+            "\"open_time\":%I64d," +
+            "\"close_time\":%I64d," +
             "\"comment\":\"%s\"" +
             "}",
             positionId,
@@ -700,8 +700,8 @@ string GetLastClosedDealsJSON(int maxCount)
             profit,
             swap,
             commission,
-            TimeToString(openTime, TIME_DATE|TIME_MINUTES),
-            TimeToString(closeTime, TIME_DATE|TIME_MINUTES),
+            (long)openTime,
+            (long)closeTime,
             commentStr
          );
          

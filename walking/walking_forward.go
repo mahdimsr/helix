@@ -73,8 +73,10 @@ func filterCandlesByTime(candles []models.Candle, start, end int64) []models.Can
 
 func filterLTFCandlesForTrading(ltfCandles []models.Candle, entryTime, windowEnd int64) []models.Candle {
 	var filtered []models.Candle
+	const fifteenMinutesInSeconds = 15 * 60
+
 	for _, c := range ltfCandles {
-		if c.Time > entryTime && c.Time <= windowEnd {
+		if c.Time > entryTime+fifteenMinutesInSeconds && c.Time <= windowEnd {
 			filtered = append(filtered, c)
 		}
 	}
@@ -659,6 +661,9 @@ func WalkForwardWithBodyGroupsLive(
 
 	var allTrades []WalkForwardTrade
 	currentCapital := initialCapital
+
+	fmt.Println("WHATTTTTTTTTTT WROMGGGGGGGGGGGGG")
+	fmt.Printf("Count HTF: %d | LTF: %d", len(htfCandles), len(ltfCandles))
 
 	// بخش 1: ترید با ترکیب‌های گروه‌بندی شده پنجره قبلی
 

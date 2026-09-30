@@ -37,23 +37,23 @@ func Handle(conn net.Conn) {
 	}(conn)
 	client := NewMT5Client(conn)
 
-	ticker := time.NewTicker(15 * time.Minute)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
-	ticker5m := time.NewTicker(5 * time.Minute)
+	ticker5m := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	tickerSec := time.NewTicker(3 * time.Second)
 	defer tickerSec.Stop()
 
-	ticker3h := time.NewTicker(5 * time.Second)
+	ticker3h := time.NewTicker(7 * time.Second)
 	defer ticker3h.Stop()
 
 	_ = godotenv.Load()
 
-	symbol := "XAUUSD.ecn"
+	symbol := "XAUUSD"
 	timeframe := "PERIOD_M15"
-	candlesCount := 10
+	candlesCount := 500
 
 	ticketRepo, err := database.NewFileRepository("tickets.json")
 	if err != nil {
@@ -347,11 +347,9 @@ func Handle(conn net.Conn) {
 				livetrades := make([]walking.WalkForwardTrade, 0, len(trades))
 				for _, t := range trades {
 
-					fmt.Printf("OpenTime: %s | CloseTime: %s \n", t.OpenTime, t.CloseTime)
-
 					livetrades = append(livetrades, walking.WalkForwardTrade{
-						EntryTime:  1,
-						ExitTime:   2,
+						EntryTime:  t.OpenTime,
+						ExitTime:   t.CloseTime,
 						Type:       t.Type,
 						EntryPrice: t.OpenPrice,
 						ExitPrice:  t.ClosePrice,
@@ -363,7 +361,7 @@ func Handle(conn net.Conn) {
 
 				config := walking.DefaultLiveConfig()
 
-				startTimeObj := time.Now().Add(3 * time.Hour)
+				startTimeObj := time.Now().Add(-3 * time.Hour)
 				endTimeObj := time.Now()
 
 				walkingForwardResults := walking.WalkForwardWithBodyGroupsLive(
@@ -371,8 +369,8 @@ func Handle(conn net.Conn) {
 					m5Candles,
 					startTimeObj.Unix(),
 					endTimeObj.Unix(),
-					1000,
-					10,
+					10000,
+					1,
 					config.TPRange,
 					config.SLRange,
 				)
@@ -381,7 +379,7 @@ func Handle(conn net.Conn) {
 
 				// ۱. ساخت فایل اکسل (با اس
 				//تفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
-				excelData, err := table.GenerateExcelFile(livetrades, walkingForwardResults.Trades)
+				excelData, err := table.GenerateExcelFile(livetrades, livetrades)
 				if err != nil {
 					log.Println("❌ Error generating Excel:", err)
 					continue

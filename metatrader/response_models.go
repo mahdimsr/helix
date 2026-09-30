@@ -43,8 +43,8 @@ type HistoryTrade struct {
 	Profit     float64 `json:"profit"`
 	Swap       float64 `json:"swap"`
 	Commission float64 `json:"commission"`
-	OpenTime   string  `json:"open_time"`
-	CloseTime  string  `json:"close_time"`
+	OpenTime   int64   `json:"open_time"`
+	CloseTime  int64   `json:"close_time"`
 	Comment    string  `json:"comment"`
 }
 
