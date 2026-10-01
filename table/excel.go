@@ -415,8 +415,8 @@ func convertBacktestTrades(backtestTrades []walking.WalkForwardTrade) []UnifiedT
 
 		var tpPrice, slPrice float64
 
-		tpPnl := 8.0
-		slPnl := 4.0 + 0.3
+		tpPnl := 11.0
+		slPnl := 2.0 + 0.3
 
 		if liveTrade.Type == "BUY" {
 

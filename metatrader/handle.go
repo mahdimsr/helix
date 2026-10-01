@@ -546,7 +546,7 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 
 	lastClosedCandle := htf[len(htf)-2]
 
-	if lastClosedCandle.BodyPercentage() > 0.01 && lastClosedCandle.IsMarubozu() {
+	if lastClosedCandle.BodyPercentage() > 0.1 && lastClosedCandle.IsMarubozu() {
 
 		signalStr := "NONE"
 		signal := indicators.NoneSignal
@@ -568,7 +568,7 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 
 		var tpPnl, slPnl float64
 
-		if lastClosedCandle.BodyPercentage() >= 0.01 && lastClosedCandle.BodyPercentage() < 0.2 {
+		if lastClosedCandle.BodyPercentage() >= 0.1 && lastClosedCandle.BodyPercentage() < 0.2 {
 			tpPnl = 13
 			slPnl = 2
 		} else if lastClosedCandle.BodyPercentage() >= 0.2 && lastClosedCandle.BodyPercentage() < 0.4 {
@@ -586,11 +586,11 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 			var tpPrice float64
 			var slPrice float64
 			if signal == indicators.BuySignal {
-				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, tpPnl, "BTC", "BUY")
-				slPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, slPnl, "BTC", "SELL")
+				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, tpPnl, "XAU", "BUY")
+				slPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, slPnl, "XAU", "SELL")
 			} else {
-				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, tpPnl, "BTC", "SELL")
-				slPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, slPnl, "BTC", "BUY")
+				tpPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, tpPnl, "XAU", "SELL")
+				slPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, slPnl, "XAU", "BUY")
 			}
 
 			placeOrder(client, symbol, signalStr, maxLots, lastClosedCandle.Close, tpPrice, slPrice)
