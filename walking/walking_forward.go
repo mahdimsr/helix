@@ -60,7 +60,7 @@ type BodyGroup struct {
 type WindowGroups struct {
 	WindowStart int64
 	WindowEnd   int64
-	Groups      [5]BodyGroup // 5 گروه: 0.2-0.4, 0.4-0.6, 0.6-0.8, 0.8-1.0, >1.0
+	Groups      [6]BodyGroup // 5 گروه: 0.2-0.4, 0.4-0.6, 0.6-0.8, 0.8-1.0, >1.0
 }
 
 func filterCandlesByTime(candles []models.Candle, start, end int64) []models.Candle {
@@ -80,8 +80,10 @@ func filterCandlesByTime(candles []models.Candle, start, end int64) []models.Can
 
 func filterLTFCandlesForTrading(ltfCandles []models.Candle, entryTime, windowEnd int64) []models.Candle {
 	var filtered []models.Candle
+	const fifteenMinutesInSeconds = 15 * 60
+
 	for _, c := range ltfCandles {
-		if c.Time > entryTime && c.Time <= windowEnd {
+		if c.Time > entryTime+fifteenMinutesInSeconds && c.Time <= windowEnd {
 			filtered = append(filtered, c)
 		}
 	}
@@ -472,14 +474,16 @@ func GetBodyGroupIndex(candle *models.Candle) int {
 	bodyPercent := candle.BodyPercentage()
 
 	if bodyPercent >= 1.0 {
-		return 4 // > 1.0%
+		return 5 // > 1.0%
 	} else if bodyPercent >= 0.8 {
-		return 3 // 0.8% - 1.0%
+		return 4 // 0.8% - 1.0%
 	} else if bodyPercent >= 0.6 {
-		return 2 // 0.6% - 0.8%
+		return 3 // 0.6% - 0.8%
 	} else if bodyPercent >= 0.4 {
-		return 1 // 0.4% - 0.6%
+		return 2 // 0.4% - 0.6%
 	} else if bodyPercent >= 0.2 {
+		return 1 // 0.2% - 0.4%
+	} else if bodyPercent >= 0.05 {
 		return 0 // 0.2% - 0.4%
 	}
 	return -1 // کمتر از 0.2% (نباید وارد معامله شود)
@@ -488,14 +492,16 @@ func GetBodyGroupIndex(candle *models.Candle) int {
 func GetGroupRange(groupIdx int) (float64, float64) {
 	switch groupIdx {
 	case 0:
-		return 0.2, 0.4
+		return 0.05, 0.2
 	case 1:
-		return 0.4, 0.6
+		return 0.2, 0.4
 	case 2:
-		return 0.6, 0.8
+		return 0.4, 0.6
 	case 3:
-		return 0.8, 1.0
+		return 0.6, 0.8
 	case 4:
+		return 0.8, 1.0
+	case 5:
 		return 1.0, 100.0 // بزرگتر از 1.0%
 	default:
 		return 0, 0
