@@ -339,24 +339,6 @@ func Handle(conn net.Conn) {
 					})
 				}
 
-				/*config := walking.DefaultLiveConfig()
-
-				startTimeObj := time.Now().Add(-3 * time.Hour)
-				endTimeObj := time.Now()
-
-				walkingForwardResults := walking.WalkForwardWithBodyGroupsLive(
-					m15Candles,
-					m5Candles,
-					startTimeObj.Unix(),
-					endTimeObj.Unix(),
-					10000,
-					1,
-					config.TPRange,
-					config.SLRange,
-				)
-
-				walking.PrintWalkForwardTrades(walkingForwardResults)*/
-
 				// ۱. ساخت فایل اکسل (با اس
 				//تفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
 				excelData, err := table.GenerateExcelFile(livetrades, livetrades)
@@ -369,24 +351,10 @@ func Handle(conn net.Conn) {
 				telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 				telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
 
-				// محاسبه خلاصه آمار
-				totalPnL := 0.0
-				winCount := 0
-				for _, t := range trades {
-					totalPnL += t.Profit
-					if t.Profit > 0 {
-						winCount++
-					}
-				}
-				winRate := float64(winCount) / float64(len(trades)) * 100
-
 				caption := fmt.Sprintf(
 					"📊 *گزارش دوره‌ای (۳ ساعته)*\n"+
-						"📈 تعداد ترید: %d\n"+
-						"✅ وین‌ریت: %.1f%%\n"+
-						"💰 سود/ضرر خالص: $%.2f\n"+
 						"🕒 زمان گزارش: %s",
-					len(trades), winRate, totalPnL, time.Now().Format("2006-01-02 15:04"),
+					time.Now().Format("2006-01-02 15:04"),
 				)
 
 				// استفاده از تابع SendExcelToTelegram که قبلاً طراحی کردیم

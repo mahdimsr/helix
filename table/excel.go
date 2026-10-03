@@ -38,22 +38,47 @@ type MatchedRow struct {
 	Backtest *UnifiedTrade // nil اگر ترید بک‌تست وجود نداشته باشد
 }
 
+type ToleranceConfig struct {
+	Entry float64 // مثلاً 4.0 دلار
+	Exit  float64 // مثلاً 4.0 دلار
+	TP    float64 // مثلاً 4.0 دلار
+	SL    float64 // مثلاً 4.0 دلار
+	PnL   float64 // مثلاً 1.0 دلار
+}
+
+// DefaultToleranceConfig مقادیر پیش‌فرض
+func DefaultToleranceConfig() ToleranceConfig {
+	return ToleranceConfig{
+		Entry: 4.0,
+		Exit:  4.0,
+		TP:    4.0,
+		SL:    4.0,
+		PnL:   1.0,
+	}
+}
+
 // calculateSimilarity درصد شباهت بین دو عدد را محاسبه می‌کند
 // (این تابع به‌طور خودکار اعداد منفی مثل PnL را هم به‌درستی مدیریت می‌کند)
-func calculateSimilarity(liveVal, btVal float64) float64 {
+func calculateSimilarityWithTolerance(liveVal, btVal float64, tolerance float64) float64 {
 	if liveVal == 0 {
 		if btVal == 0 {
-			return 100.0 // هر دو صفر هستند، پس کاملاً شبیه‌اند
+			return 100.0
 		}
-		return 0.0 // یکی صفر و دیگری غیرصفر است، شباهتی ندارند
+		return 0.0
 	}
 
 	diff := math.Abs(liveVal - btVal)
-	// استفاده از math.Abs برای مخرج، باعث می‌شود اگر PnL منفی باشد، تقسیم بر عدد منفی انجام نشود
-	diffPercent := (diff / math.Abs(liveVal)) * 100.0
+
+	// اگه اختلاف در محدوده تلورانس بود، کاملاً شبیه است
+	if diff <= tolerance {
+		return 100.0
+	}
+
+	// اختلاف بیش از تلورانس: penalty بر اساس مازاد اختلاف
+	excessDiff := diff - tolerance
+	diffPercent := (excessDiff / math.Abs(liveVal)) * 100.0
 	similarity := 100.0 - diffPercent
 
-	// جلوگیری از منفی شدن درصد در صورت اختلاف بسیار فاحش
 	if similarity < 0 {
 		return 0.0
 	}
@@ -61,18 +86,17 @@ func calculateSimilarity(liveVal, btVal float64) float64 {
 }
 
 // calculateRowSimilarity میانگین شباهت ۵ پارامتر کلیدی را محاسبه می‌کند
-func calculateRowSimilarity(live, bt *UnifiedTrade) float64 {
+func calculateRowSimilarity(live, bt *UnifiedTrade, cfg ToleranceConfig) float64 {
 	if live == nil || bt == nil {
 		return 0.0
 	}
 
-	simEntry := calculateSimilarity(live.Entry, bt.Entry)
-	simExit := calculateSimilarity(live.Exit, bt.Exit)
-	simTP := calculateSimilarity(live.TP, bt.TP)
-	simSL := calculateSimilarity(live.SL, bt.SL)
-	simPnL := calculateSimilarity(live.PnL, bt.PnL) // ✅ پارامتر جدید اضافه شد
+	simEntry := calculateSimilarityWithTolerance(live.Entry, bt.Entry, cfg.Entry)
+	simExit := calculateSimilarityWithTolerance(live.Exit, bt.Exit, cfg.Exit)
+	simTP := calculateSimilarityWithTolerance(live.TP, bt.TP, cfg.TP)
+	simSL := calculateSimilarityWithTolerance(live.SL, bt.SL, cfg.SL)
+	simPnL := calculateSimilarityWithTolerance(live.PnL, bt.PnL, cfg.PnL)
 
-	// ✅ میانگین‌گیری بر روی ۵ پارامتر
 	return (simEntry + simExit + simTP + simSL + simPnL) / 5.0
 }
 
@@ -255,8 +279,9 @@ func GenerateExcelFile(liveTrades []walking.WalkForwardTrade, backtestTrades []w
 
 		// --- ✅ بخش درصد شباهت (ستون ۱۶) ---
 		cellSim, _ := excelize.CoordinatesToCellName(16, rowNum)
+		defaultTolerance := DefaultToleranceConfig()
 		if row.Live != nil && row.Backtest != nil {
-			similarity := calculateRowSimilarity(row.Live, row.Backtest)
+			similarity := calculateRowSimilarity(row.Live, row.Backtest, defaultTolerance)
 			f.SetCellValue(sheetName, cellSim, fmt.Sprintf("%.1f%%", similarity))
 
 			// اعمال رنگ‌بندی شرطی بر اساس مقدار شباهت
