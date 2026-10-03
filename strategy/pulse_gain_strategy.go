@@ -107,6 +107,10 @@ func runSingleBacktest(
 
 	// 🆕 متغیر برای ذخیره زمان بسته شدن آخرین ترید
 	var lastCloseTime int64 = 0
+	var htfInterval int64
+	if len(htfCandles) >= 2 {
+		htfInterval = htfCandles[1].Time - htfCandles[0].Time
+	}
 
 	for _, htf := range htfCandles {
 		if currentCapital <= liquidationLevel {
@@ -114,8 +118,11 @@ func runSingleBacktest(
 			break
 		}
 
-		// 🛑 چک کردن همپوشانی: اگر زمان این کندل قبل از بسته شدن ترید قبلی است، نادیده بگیر
-		if htf.Time < lastCloseTime {
+		// 🔧 زمان بسته شدن کندل HTF
+		htfCloseTime := htf.Time + htfInterval
+
+		// 🔧 اگر کندل HTF قبل از بسته شدن ترید قبلی بسته می‌شه، نادیده بگیر
+		if htfCloseTime <= lastCloseTime {
 			continue
 		}
 
@@ -153,10 +160,10 @@ func runSingleBacktest(
 			slPrice = entryPrice + priceDistSL
 		}
 
+		// 🔧 شروع بررسی LTF از بعد از بسته شدن کندل HTF (نه باز شدنش)
 		startIdx := sort.Search(len(ltfCandles), func(i int) bool {
-			return ltfCandles[i].Time > entryTime
+			return ltfCandles[i].Time >= htfCloseTime
 		})
-
 		var status string
 		var exitPrice float64
 		var exitTime int64

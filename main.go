@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"helix/chart"
 	"helix/database"
-	"helix/walking"
-	"log"
-	"time"
+	"helix/strategy"
+	"os"
 )
 
 func main() {
@@ -32,7 +33,7 @@ func main() {
 		MaxConcurrentTrades:     int(100 / bestResult.Config.AllocationPercent),
 	}*/
 
-	layout := "2006-01-02"
+	/*layout := "2006-01-02"
 
 	startTimeObj, err := time.Parse(layout, "2026-08-01")
 	if err != nil {
@@ -42,28 +43,43 @@ func main() {
 	endTimeObj, err := time.Parse(layout, "2026-09-01")
 	if err != nil {
 		log.Fatalln(err)
-	}
+	}*/
 
 	highCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-02-01", "2026-09-19")
 	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "5m", "2026-02-01", "2026-09-19")
 
-	tpDollars := makeRange(5.0, 10.0, 1.0)
-	slDollars := makeRange(50.0, 100.0, 1.0)
+	tpDollars := makeRange(1.0, 100.0, 1.0)
+	slDollars := makeRange(1.0, 100.0, 1.0)
 
-	walkingForwardResults := walking.WalkForwardWithBodyGroups(
+	results := strategy.RunBacktest(
 		highCandles,
 		lowCandles,
-		startTimeObj.Unix(),
-		endTimeObj.Unix(),
-		1,
-		3,
-		1000,
-		10,
+		1000.0, // سرمایه اولیه 1000 دلار
+		10.0,   // لوریج 10
 		tpDollars,
 		slDollars,
 	)
 
-	walking.PrintWalkForwardTrades(walkingForwardResults)
+	err := chart.GenerateInteractiveChart(results, "chart.html")
+	chartURL, err := chart.GenerateShortChartURL(results)
+	if err != nil {
+		fmt.Println("خطا در تولید نمودار:", err)
+		return
+	}
+
+	fmt.Println("\n✅ لینک نمودار تعاملی شما آماده است:")
+	//fmt.Println(chartURL)
+
+	filename := "chart_link.txt"
+
+	// تبدیل رشته به بایت و ذخیره با دسترسی خواندن/نوشتن (0644)
+	err = os.WriteFile(filename, []byte(chartURL), 0644)
+	if err != nil {
+		fmt.Println("❌ خطا در ذخیره فایل:", err)
+		return
+	}
+
+	fmt.Println("\n(این لینک را کپی کرده و در مرورگر خود باز کنید)")
 
 	/*
 
