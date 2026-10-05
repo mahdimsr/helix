@@ -26,16 +26,17 @@ type MaxGainPoint struct {
 }
 
 type ScoredResult struct {
-	TP          float64
-	SL          float64
-	Gain        float64
-	Trades      int
-	WinRate     float64
-	RR          float64
-	ScoreGain   float64 // نمره Gain (بین 0 تا 1)
-	ScoreTrades float64 // نمره Trades (بین 0 تا 1)
-	ScoreRR     float64 // نمره R/R (بین 0 تا 1)
-	TotalScore  float64 // مجموع سه نمره
+	TP           float64
+	SL           float64
+	Gain         float64
+	Trades       int
+	WinRate      float64
+	RR           float64
+	ScoreGain    float64 // نمره Gain (بین 0 تا 1)
+	ScoreTrades  float64 // نمره Trades (بین 0 تا 1)
+	ScoreRR      float64 // نمره R/R (بین 0 تا 1)
+	ScoreWinrate float64 // نمره R/R (بین 0 تا 1)
+	TotalScore   float64 // مجموع سه نمره
 }
 
 func RunBacktest(
@@ -407,6 +408,11 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 	maxRR := 0.0
 	maxWinrate := 0.0
 
+	//bestGainTp, bestGainSl := 0.0, 0.0
+	//bestTradeTp, bestTradeSl := 0.0, 0.0
+	//bestRRTp, bestRRSl := 0.0, 0.0
+	//bestWinrateTp, bestWinrateSl := 0.0, 0.0
+
 	// ابتدا باید همه نقاط معتبر را جمع کنیم
 	var validPoints []ScoredResult
 
@@ -434,15 +440,27 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 			// به‌روزرسانی ماکزیمم‌ها
 			if gain > maxGain {
 				maxGain = gain
+
+				//bestGainTp = tp
+				//bestGainSl = sl
 			}
 			if trades > maxTrades {
 				maxTrades = trades
+
+				//bestTradeTp = tp
+				//bestTradeSl = sl
 			}
 			if rr > maxRR {
 				maxRR = rr
+
+				//bestRRTp = tp
+				//bestRRSl = sl
 			}
 			if winRate > maxWinrate {
 				maxWinrate = winRate
+
+				//bestWinrateTp = tp
+				//bestWinrateSl = sl
 			}
 		}
 	}
@@ -479,13 +497,13 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 
 		// نمره R/R: نسبت به بیشترین R/R
 		if maxWinrate > 0 {
-			pt.WinRate = pt.WinRate / maxWinrate
+			pt.ScoreWinrate = pt.WinRate / maxWinrate
 		} else {
-			pt.WinRate = 0
+			pt.ScoreWinrate = 0
 		}
 
 		// مجموع نمرات
-		pt.TotalScore = pt.ScoreGain + pt.ScoreTrades + pt.ScoreRR + maxWinrate
+		pt.TotalScore = pt.ScoreGain + (pt.ScoreTrades) + (pt.ScoreRR * 2) + (pt.ScoreWinrate) + 0.3
 	}
 
 	// مرحله 3: مرتب‌سازی نزولی بر اساس TotalScore
@@ -493,14 +511,26 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 		return validPoints[i].TotalScore > validPoints[j].TotalScore
 	})
 
-	// نمایش خلاصه در کنسول
+	/*point := validPoints[0]
+
 	fmt.Printf("\n📊 خلاصه نمره‌دهی:\n")
-	fmt.Printf("   بیشترین Gain: $%.2f\n", maxGain)
-	fmt.Printf("   بیشترین Trades: %d\n", maxTrades)
-	fmt.Printf("   بیشترین R/R: %.2f\n", maxRR)
+	fmt.Printf("| tp: %.2f | sl: %.2f   بیشترین Gain: $%.2f\n", bestGainTp, bestGainSl, maxGain)
+	fmt.Printf("| tp: %.2f | sl: %.2f   بیشترین Winrate: %.2f\n", bestWinrateTp, bestWinrateSl, maxWinrate)
+	fmt.Printf("| tp: %.2f | sl: %.2f   بیشترین Trades: %d\n", bestTradeTp, bestTradeSl, maxTrades)
+	fmt.Printf("| tp: %.2f | sl: %.2f   بیشترین R/R: %.2f\n", bestRRTp, bestRRSl, maxRR)
 	fmt.Printf("   تعداد نقاط نمره‌دهی شده: %d\n", len(validPoints))
-	fmt.Printf("   🏆 بهترین ترکیب: TP=%.0f, SL=%.0f (Total Score: %.3f)\n",
-		validPoints[0].TP, validPoints[0].SL, validPoints[0].TotalScore)
+	fmt.Printf("   🏆 بهترین ترکیب: TP=%.0f, SL=%.0f gain: %.0f trades: %d R/R: %.2f winrate: %.3f (Total Score: %.3f)\n",
+		point.TP, point.SL, point.Gain, point.Trades, point.RR, point.WinRate, point.TotalScore)*/
+
+	/*g := 1.3 + rand.Float64()*(0.7-0.1)
+	t := 0.6 + rand.Float64()*(0.5-0.1)
+	r := 1.5 + rand.Float64()*(0.5-0.1)
+	w := 0.8 + rand.Float64()*(0.5-0.1)
+	d := 0.1 + rand.Float64()*(0.5-0.1)*/
+
+	//fmt.Printf("GTRWD: gain: %.2f | trades: %.2f | RR: %.2f | winarte: %.2f | DD: %.2f \n", g, t, r, w, d)
+
+	//log.Fatalf("DONE")
 
 	return validPoints
 }

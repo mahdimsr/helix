@@ -56,11 +56,26 @@ type BodyGroup struct {
 	TotalPnL   float64 `json:"totalPnL"`
 }
 
+type WalkForwardOptimizationResult struct {
+	BestWindowDays   int
+	BestLookbackDays int
+	BestTotalPnL     float64
+	BestWinRate      float64
+	BestTotalTrades  int
+	AllResults       []struct {
+		WindowDays   int
+		LookbackDays int
+		TotalPnL     float64
+		WinRate      float64
+		TotalTrades  int
+	}
+}
+
 // WindowGroups گروه‌های یک پنجره زمانی
 type WindowGroups struct {
 	WindowStart int64
 	WindowEnd   int64
-	Groups      [6]BodyGroup // 5 گروه: 0.2-0.4, 0.4-0.6, 0.6-0.8, 0.8-1.0, >1.0
+	Groups      [10]BodyGroup // 5 گروه: 0.2-0.4, 0.4-0.6, 0.6-0.8, 0.8-1.0, >1.0
 }
 
 func filterCandlesByTime(candles []models.Candle, start, end int64) []models.Candle {
@@ -260,6 +275,7 @@ func executeTradesWithFixedTPSL(
 			CapitalBefore: capitalBefore,
 			CapitalAfter:  capitalAfter,
 			ROI:           roi,
+			Comment:       fmt.Sprintf("Tp: %.2f | Sl: %.2f", tpPrice, slPrice),
 		})
 	}
 
@@ -300,16 +316,16 @@ func WalkForward(
 	}
 
 	if len(windows) < 2 {
-		fmt.Println("⚠️ حداقل 2 پنجره زمانی نیاز است.")
+		fmt.Println("⚠️ حداقل 1 پنجره زمانی نیاز است.")
 		return &WalkForwardResult{}
 	}
 
-	fmt.Printf("\n🚀 شروع پیمایش پنجره‌ای (بدون Look-Ahead Bias):\n")
+	fmt.Printf("\n🚀 شروع پیمایش پنجره‌ای :\n")
 	fmt.Printf("   بازه: %s تا %s\n",
 		time.Unix(startTime, 0).Format("2006-01-02"),
 		time.Unix(endTime, 0).Format("2006-01-02"))
-	fmt.Printf("   طول هر پنجره: %d روز\n", windowDays)
-	fmt.Printf("   طول Lookback: %d روز\n", lookbackDays) // 🆕
+	//fmt.Printf("   طول هر پنجره: %d روز\n", windowDays)
+	//fmt.Printf("   طول Lookback: %d روز\n", lookbackDays) // 🆕
 	fmt.Println("─────────────────────────────────────────────────────────")
 
 	var allTrades []WalkForwardTrade
@@ -325,23 +341,26 @@ func WalkForward(
 		htfLookback := filterCandlesByTime(htfCandles, lookbackStart, win.Start)
 		ltfLookback := filterCandlesByTime(ltfCandles, lookbackStart, win.Start)
 
-		winStartStr := time.Unix(win.Start, 0).Format("2006-01-02")
-		winEndStr := time.Unix(win.End, 0).Format("2006-01-02")
+		//winStartStr := time.Unix(win.Start, 0).Format("2006-01-02")
+		//winEndStr := time.Unix(win.End, 0).Format("2006-01-02")
 
-		fmt.Printf("\n📈 پنجره %d [%s → %s]:\n", i+1, winStartStr, winEndStr)
+		//fmt.Printf("\n📈 پنجره %d [%s → %s]:\n", i+1, winStartStr, winEndStr)
+		fmt.Printf("\n📈 پنجره %d :\n", i+1)
 
 		// 🆕 بهینه‌سازی بر اساس داده‌های گذشته (نه پنجره فعلی!)
 		if len(htfLookback) > 0 && len(ltfLookback) > 0 {
-			fmt.Printf("   🧮 بهینه‌سازی بر اساس %d روز گذشته...\n", lookbackDays)
+			//fmt.Printf("   🧮 بهینه‌سازی بر اساس %d روز گذشته...\n", lookbackDays)
 
 			results := strategy.RunBacktest(htfLookback, ltfLookback, initialCapital, leverage, tpRange, slRange)
+			//filtered := results.FilterByGainThreshold(90)
+
 			scored := results.ScoreResults()
 
 			if len(scored) > 0 {
 				bestTP = scored[0].TP
 				bestSL = scored[0].SL
-				fmt.Printf("   ✅ بهترین ترکیب: TP=$%.0f, SL=$%.0f (Score: %.3f)\n",
-					bestTP, bestSL, scored[0].TotalScore)
+				/*fmt.Printf("   ✅ بهترین ترکیب: TP=$%.0f, SL=$%.0f (Score: %.3f)\n",
+				bestTP, bestSL, scored[0].TotalScore)*/
 			}
 		} else {
 			fmt.Printf("   ⚠️ داده Lookback کافی نیست.\n")
@@ -351,8 +370,7 @@ func WalkForward(
 		if bestTP > 0 && bestSL > 0 && len(htfWindow) > 0 && len(ltfWindow) > 0 {
 			fmt.Printf("   🔄 ترید با TP=$%.0f, SL=$%.0f\n", bestTP, bestSL)
 
-			trades := executeTradesWithFixedTPSL(
-				htfWindow, ltfWindow, currentCapital, leverage, bestTP, bestSL, win.End)
+			trades := executeTradesWithFixedTPSL(htfWindow, ltfWindow, currentCapital, leverage, bestTP, bestSL, win.End)
 
 			windowPnL := 0.0
 			windowWins := 0
@@ -366,8 +384,7 @@ func WalkForward(
 				}
 			}
 
-			fmt.Printf("   📊 %d ترید | سود: $%.2f | برد: %d\n",
-				len(trades), windowPnL, windowWins)
+			fmt.Printf("   📊 trades: %d | pnl: %.2f | wins: %d \n", len(trades), windowPnL, windowWins)
 
 			allTrades = append(allTrades, trades...)
 		} else {
@@ -401,6 +418,160 @@ func WalkForward(
 	fmt.Println("═════════════════════════════════════════════════════════")
 
 	return result
+}
+
+// WalkForwardAllScored همه scored results رو تست می‌کنه (نه فقط بهترین)
+func WalkForwardAllScored(
+	htfCandles []models.Candle,
+	ltfCandles []models.Candle,
+	startTime int64,
+	endTime int64,
+	windowDays int,
+	lookbackDays int,
+	initialCapital float64,
+	leverage float64,
+	tpRange []float64,
+	slRange []float64,
+) []*WalkForwardResult {
+
+	htfCandles = NormalizeCandleTimes(htfCandles)
+	ltfCandles = NormalizeCandleTimes(ltfCandles)
+	startTime = NormalizeTimestamp(startTime)
+	endTime = NormalizeTimestamp(endTime)
+
+	windowSeconds := int64(windowDays * 24 * 3600)
+	lookbackSeconds := int64(lookbackDays * 24 * 3600)
+
+	var windows []Window
+	for t := startTime; t < endTime; t += windowSeconds {
+		windowEnd := t + windowSeconds
+		if windowEnd > endTime {
+			windowEnd = endTime
+		}
+		windows = append(windows, Window{Start: t, End: windowEnd})
+	}
+
+	if len(windows) < 2 {
+		fmt.Println("⚠️ حداقل 1 پنجره زمانی نیاز است.")
+		return nil
+	}
+
+	// نگه داشتن نتایج به ازای هر ترکیب TP/SL
+	// key: "TP-SL"
+	type ComboState struct {
+		Capital float64
+		Result  *WalkForwardResult
+	}
+	comboMap := map[string]*ComboState{}
+
+	fmt.Printf("\n🚀 شروع WalkForwardAllScored\n")
+	fmt.Println("─────────────────────────────────────────────────────────")
+
+	for i, win := range windows {
+		htfWindow := filterCandlesByTime(htfCandles, win.Start, win.End)
+		ltfWindow := filterCandlesByTime(ltfCandles, win.Start, win.End)
+
+		lookbackStart := win.Start - lookbackSeconds
+		htfLookback := filterCandlesByTime(htfCandles, lookbackStart, win.Start)
+		ltfLookback := filterCandlesByTime(ltfCandles, lookbackStart, win.Start)
+
+		fmt.Printf("\n📈 پنجره %d:\n", i+1)
+
+		if len(htfLookback) == 0 || len(ltfLookback) == 0 {
+			fmt.Println("   ⚠️ داده Lookback کافی نیست.")
+			continue
+		}
+
+		results := strategy.RunBacktest(htfLookback, ltfLookback, initialCapital, leverage, tpRange, slRange)
+		scored := results.ScoreResults()
+
+		if len(scored) == 0 {
+			fmt.Println("   ⚠️ هیچ scored result ای یافت نشد.")
+			continue
+		}
+
+		fmt.Printf("   📊 تعداد scored: %d\n", len(scored))
+
+		if len(htfWindow) == 0 || len(ltfWindow) == 0 {
+			fmt.Println("   ⚠️ داده پنجره جاری کافی نیست.")
+			continue
+		}
+
+		for _, sc := range scored {
+			key := fmt.Sprintf("%.0f-%.0f", sc.TP, sc.SL)
+
+			if _, exists := comboMap[key]; !exists {
+				comboMap[key] = &ComboState{
+					Capital: initialCapital,
+					Result:  &WalkForwardResult{},
+				}
+			}
+			state := comboMap[key]
+
+			trades := executeTradesWithFixedTPSL(
+				htfWindow, ltfWindow,
+				state.Capital, leverage,
+				sc.TP, sc.SL,
+				win.End,
+			)
+
+			for idx := range trades {
+				trades[idx].WindowStart = win.Start
+				trades[idx].WindowEnd = win.End
+				state.Capital += trades[idx].PnL
+				state.Result.TotalPnL += trades[idx].PnL
+				state.Result.TotalTrades++
+				if trades[idx].Status == "TP" {
+					state.Result.WinCount++
+				}
+			}
+			state.Result.Trades = append(state.Result.Trades, trades...)
+		}
+	}
+
+	// ساخت slice نتایج و چاپ
+	var allResults []*WalkForwardResult
+
+	fmt.Println("\n═════════════════════════════════════════════════════════")
+	fmt.Println("📋 نتایج همه ترکیب‌های TP/SL:")
+	fmt.Printf("%-12s %-12s %-10s %-10s %-10s %-14s\n",
+		"TP", "SL", "Trades", "Wins", "WinRate%", "TotalPnL")
+	fmt.Println("─────────────────────────────────────────────────────────")
+
+	// مرتب‌سازی بر اساس TotalPnL
+	type keyedResult struct {
+		key    string
+		tp, sl float64
+		state  *ComboState
+	}
+	var sorted []keyedResult
+	for key, state := range comboMap {
+		var tp, sl float64
+		fmt.Sscanf(key, "%f-%f", &tp, &sl)
+		sorted = append(sorted, keyedResult{key, tp, sl, state})
+	}
+	// مرتب‌سازی نزولی بر اساس TotalPnL
+	for i := 0; i < len(sorted); i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[j].state.Result.TotalPnL > sorted[i].state.Result.TotalPnL {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+
+	for _, item := range sorted {
+		r := item.state.Result
+		if r.TotalTrades > 0 {
+			r.WinRate = float64(r.WinCount) / float64(r.TotalTrades) * 100
+		}
+		fmt.Printf("$%-11.0f $%-11.0f %-10d %-10d %-10.1f $%-13.2f\n",
+			item.tp, item.sl,
+			r.TotalTrades, r.WinCount, r.WinRate, r.TotalPnL)
+		allResults = append(allResults, r)
+	}
+
+	fmt.Println("═════════════════════════════════════════════════════════")
+	return allResults
 }
 
 func PrintWalkForwardTrades(result *WalkForwardResult) {
@@ -474,17 +645,25 @@ func GetBodyGroupIndex(candle *models.Candle) int {
 	bodyPercent := candle.BodyPercentage()
 
 	if bodyPercent >= 1.0 {
-		return 5 // > 1.0%
+		return 10 // > 1.0%
+	} else if bodyPercent >= 0.9 {
+		return 9 // 0.8% - 1.0%
 	} else if bodyPercent >= 0.8 {
-		return 4 // 0.8% - 1.0%
+		return 8 // 0.8% - 1.0%
+	} else if bodyPercent >= 0.7 {
+		return 7 // 0.8% - 1.0%
 	} else if bodyPercent >= 0.6 {
-		return 3 // 0.6% - 0.8%
+		return 6 // 0.8% - 1.0%
+	} else if bodyPercent >= 0.5 {
+		return 5 // 0.8% - 1.0%
 	} else if bodyPercent >= 0.4 {
-		return 2 // 0.4% - 0.6%
+		return 4 // 0.8% - 1.0%
+	} else if bodyPercent >= 0.3 {
+		return 3 // 0.6% - 0.8%
 	} else if bodyPercent >= 0.2 {
+		return 2 // 0.4% - 0.6%
+	} else if bodyPercent >= 0.1 {
 		return 1 // 0.2% - 0.4%
-	} else if bodyPercent >= 0.05 {
-		return 0 // 0.2% - 0.4%
 	}
 	return -1 // کمتر از 0.2% (نباید وارد معامله شود)
 }
@@ -492,16 +671,24 @@ func GetBodyGroupIndex(candle *models.Candle) int {
 func GetGroupRange(groupIdx int) (float64, float64) {
 	switch groupIdx {
 	case 0:
-		return 0.05, 0.2
+		return 0.1, 0.2
 	case 1:
-		return 0.2, 0.4
+		return 0.2, 0.3
 	case 2:
-		return 0.4, 0.6
+		return 0.3, 0.4
 	case 3:
-		return 0.6, 0.8
+		return 0.4, 0.5
 	case 4:
-		return 0.8, 1.0
+		return 0.5, 0.6
 	case 5:
+		return 0.6, 0.7
+	case 6:
+		return 0.7, 0.8
+	case 7:
+		return 0.8, 0.9
+	case 8:
+		return 0.9, 1.0
+	case 9:
 		return 1.0, 100.0 // بزرگتر از 1.0%
 	default:
 		return 0, 0
@@ -685,6 +872,8 @@ func calculateBestCombinationsByGroup(
 
 		// اجرای بک‌تست برای این گروه
 		results := strategy.RunBacktest(filteredHTF, ltfWindow, initialCapital, leverage, tpRange, slRange)
+		//filtered := results.FilterByGainThreshold(90)
+
 		scored := results.ScoreResults()
 
 		if len(scored) > 0 {
@@ -1132,4 +1321,84 @@ func PrintStaticTrades(trades []WalkForwardTrade) {
 		)
 	}
 	fmt.Println("└──────────────────────────────────────────────────┴──────────┴──────────┴───────────┴─────────────┴─────────────┴─────────────┴─────────────┴───────┘")
+}
+
+func OptimizeWalkForwardParameters(
+	htfCandles []models.Candle,
+	ltfCandles []models.Candle,
+	startTime int64,
+	endTime int64,
+	windowDaysRange []int, // مثلاً []int{1, 2, 3, 5, 7}
+	lookbackDaysRange []int, // مثلاً []int{7, 10, 14, 21, 30}
+	initialCapital float64,
+	leverage float64,
+	tpRange []float64,
+	slRange []float64,
+) *WalkForwardOptimizationResult {
+
+	fmt.Println("\n🔬 شروع بهینه‌سازی پارامترهای Walk-Forward...")
+	fmt.Printf("   تست %d ترکیب (Window × Lookback)\n", len(windowDaysRange)*len(lookbackDaysRange))
+	fmt.Println("═════════════════════════════════════════════════════════")
+
+	result := &WalkForwardOptimizationResult{
+		BestTotalPnL: math.Inf(-1),
+	}
+
+	totalCombinations := len(windowDaysRange) * len(lookbackDaysRange)
+	counter := 0
+
+	for _, windowDays := range windowDaysRange {
+		for _, lookbackDays := range lookbackDaysRange {
+			counter++
+			fmt.Printf("\n[%d/%d] تست: Window=%d روز, Lookback=%d روز\n",
+				counter, totalCombinations, windowDays, lookbackDays)
+
+			// اجرای Walk-Forward با این ترکیب
+			wfResult := WalkForward(
+				htfCandles, ltfCandles,
+				startTime, endTime,
+				windowDays, lookbackDays,
+				initialCapital, leverage,
+				tpRange, slRange,
+			)
+
+			// ذخیره نتیجه
+			result.AllResults = append(result.AllResults, struct {
+				WindowDays   int
+				LookbackDays int
+				TotalPnL     float64
+				WinRate      float64
+				TotalTrades  int
+			}{
+				WindowDays:   windowDays,
+				LookbackDays: lookbackDays,
+				TotalPnL:     wfResult.TotalPnL,
+				WinRate:      wfResult.WinRate,
+				TotalTrades:  wfResult.TotalTrades,
+			})
+
+			// بروزرسانی بهترین
+			if wfResult.TotalPnL > result.BestTotalPnL {
+				result.BestWindowDays = windowDays
+				result.BestLookbackDays = lookbackDays
+				result.BestTotalPnL = wfResult.TotalPnL
+				result.BestWinRate = wfResult.WinRate
+				result.BestTotalTrades = wfResult.TotalTrades
+
+				fmt.Printf("   🏆 بهترین جدید! PnL=$%.2f, WinRate=%.1f%%, Trades=%d\n",
+					wfResult.TotalPnL, wfResult.WinRate, wfResult.TotalTrades)
+			}
+		}
+	}
+
+	fmt.Println("\n═════════════════════════════════════════════════════════")
+	fmt.Println("🏁 نتیجه نهایی بهینه‌سازی:")
+	fmt.Printf("   ✅ بهترین Window: %d روز\n", result.BestWindowDays)
+	fmt.Printf("   ✅ بهترین Lookback: %d روز\n", result.BestLookbackDays)
+	fmt.Printf("   💰 سود کل: $%.2f\n", result.BestTotalPnL)
+	fmt.Printf("   📊 Win Rate: %.1f%%\n", result.BestWinRate)
+	fmt.Printf("   🔢 تعداد تریدها: %d\n", result.BestTotalTrades)
+	fmt.Println("═════════════════════════════════════════════════════════")
+
+	return result
 }

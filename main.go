@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"helix/chart"
 	"helix/database"
-	"helix/strategy"
-	"os"
+	"helix/walking"
+	"log"
+	"time"
 )
 
 func main() {
@@ -14,44 +13,73 @@ func main() {
 	db := database.MongoConnect()
 	candlesRepo := database.NewCandleRepository(&db)
 
-	/*candles, err := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-08-19", "2026-08-20")
-	if err != nil {
-		log.Fatalf("Error getching candle: %d", err)
-	}
+	layout := "2006-01-02 15:04:05"
 
-	results := strategy.RunPulseOptimization(candles)
-	bestResult := results[1]
-	cfg := strategy.PulseStrategyConfig{
-		BodyThresholdPercent:    bestResult.Config.BodyThresholdPercent,    // بادی بیشتر از 0.1%
-		BodyThresholdPercentMax: bestResult.Config.BodyThresholdPercentMax, // بادی بیشتر از 0.1%
-		TPBodyRatio:             bestResult.Config.TPBodyRatio,             // tp روی x درصد از بادی کندل
-		SLMultiplier:            bestResult.Config.SLMultiplier,            // حد ضرر ۵ برابر فاصله حد سود
-		AllocationPercent:       bestResult.Config.AllocationPercent,       // درصد سرمایه در هر معامله
-		Leverage:                bestResult.Config.Leverage,                // لوریج 0
-		FeePercent:              0,                                         // کارمزد ۰.۱٪
-		InitialCapital:          1000,                                      // سرمایه اولیه ۱۰۰۰
-		MaxConcurrentTrades:     int(100 / bestResult.Config.AllocationPercent),
-	}*/
-
-	/*layout := "2006-01-02"
-
-	startTimeObj, err := time.Parse(layout, "2026-08-01")
+	startTimeObj, err := time.Parse(layout, "2026-02-01 00:00:00")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	endTimeObj, err := time.Parse(layout, "2026-09-01")
+	endTimeObj, err := time.Parse(layout, "2026-03-01 00:00:00")
 	if err != nil {
 		log.Fatalln(err)
-	}*/
+	}
 
-	highCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "15m", "2026-02-01", "2026-09-19")
-	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSDT", "5m", "2026-02-01", "2026-09-19")
+	highCandles, _ := candlesRepo.Fetch(context.Background(), "XAUUSD", "15m", "2026-02-01", "2026-10-01")
+	lowCandles, _ := candlesRepo.Fetch(context.Background(), "XAUUSD", "5m", "2026-02-01", "2026-10-01")
 
-	tpDollars := makeRange(1.0, 100.0, 1.0)
-	slDollars := makeRange(1.0, 100.0, 1.0)
+	tpDollars := makeRange(50.0, 50.0, 1.0)
+	slDollars := makeRange(5.0, 5.0, 1.0)
 
-	results := strategy.RunBacktest(
+	//windowDaysRange := []int{1, 2, 3}   // تست این مقادیر
+	//lookbackDaysRange := []int{1, 2, 3} // تست این مقادیر
+
+	/*results := strategy.RunBacktest(
+		highCandles,
+		lowCandles,
+		1000.0, // سرمایه اولیه 1000 دلار
+		10.0,   // لوریج 10
+		tpDollars,
+		slDollars,
+	)*/
+
+	result := walking.WalkForward(
+		highCandles,
+		lowCandles,
+		startTimeObj.Unix(),
+		endTimeObj.Unix(),
+		1,
+		1,
+		10000.0,   // سرمایه اولیه
+		1.0,       // اهرم
+		tpDollars, // TP ثابت: 9 دلار
+		slDollars, // SL ثابت: 13 دلار
+	)
+
+	// چاپ تریدها
+	walking.PrintWalkForwardTrades(result)
+
+	/*optResult := walking.OptimizeWalkForwardParameters(
+		highCandles,
+		lowCandles,
+		startTimeObj.Unix(),
+		endTimeObj.Unix(),
+		windowDaysRange,
+		lookbackDaysRange,
+		1000.0,
+		10.0,
+		tpDollars,
+		slDollars,
+	)
+
+	fmt.Printf("\n✅ بهترین ترکیب پیدا شد:\n")
+	fmt.Printf("   Window=%d روز, Lookback=%d روز\n",
+		optResult.BestWindowDays, optResult.BestLookbackDays)
+	fmt.Printf("   سود=$%.2f, WinRate=%.1f%%\n",
+		optResult.BestTotalPnL, optResult.BestWinRate)*/
+
+	/*//log.Fatal("Here")
+	/*results := strategy.RunBacktest(
 		highCandles,
 		lowCandles,
 		1000.0, // سرمایه اولیه 1000 دلار
@@ -59,7 +87,6 @@ func main() {
 		tpDollars,
 		slDollars,
 	)
-
 	err := chart.GenerateInteractiveChart(results, "chart.html")
 	chartURL, err := chart.GenerateShortChartURL(results)
 	if err != nil {
@@ -79,7 +106,7 @@ func main() {
 		return
 	}
 
-	fmt.Println("\n(این لینک را کپی کرده و در مرورگر خود باز کنید)")
+	fmt.Println("\n(این لینک را کپی کرده و در مرورگر خود باز کنید)")*/
 
 	/*
 
