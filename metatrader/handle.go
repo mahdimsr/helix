@@ -325,7 +325,12 @@ func Handle(conn net.Conn) {
 
 				// تبدیل به فرمت مورد نیاز اکسل
 				livetrades := make([]walking.WalkForwardTrade, 0, len(trades))
+				threeHoursBefore := time.Now().Add(-3 * time.Hour).Unix()
 				for _, t := range trades {
+
+					if t.OpenTime < threeHoursBefore {
+						continue
+					}
 
 					livetrades = append(livetrades, walking.WalkForwardTrade{
 						EntryTime:  t.OpenTime,
@@ -337,6 +342,15 @@ func Handle(conn net.Conn) {
 						SL:         t.SL,
 						PnL:        t.Profit,
 					})
+				}
+
+				if len(livetrades) > 0 {
+					for _, livetrade := range livetrades {
+
+						t := time.Unix(livetrade.EntryTime, 0).UTC()
+						fmt.Println(t.Format("2006-01-02 15:04:05"))
+
+					}
 				}
 
 				// ۱. ساخت فایل اکسل (با اس
