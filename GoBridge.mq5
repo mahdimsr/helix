@@ -615,6 +615,9 @@ ENUM_ORDER_TYPE_FILLING GetFillingMode(string sym)
 
 string GetLastClosedDealsJSON(int maxCount)
 {
+   // محاسبه offset بروکر (Broker Time - UTC) یک‌بار قبل از حلقه
+   long offsetSec = (long)TimeTradeServer() - (long)TimeGMT();
+
    // انتخاب تاریخچه ۳۰ روز گذشته
    HistorySelect(TimeCurrent() - 30*24*60*60, TimeCurrent());
    int totalDeals = HistoryDealsTotal();
@@ -648,7 +651,7 @@ string GetLastClosedDealsJSON(int maxCount)
          double tp = 0;
          double sl = 0;
          datetime openTime = closeTime;
-         string typeStr = "UNKNOWN"; // پیش‌فرض
+         string typeStr = "UNKNOWN";
          
          // ۱. پیدا کردن Deal ورودی (IN) مربوط به همین پوزیشن
          for(int j = i; j >= 0; j--)
@@ -662,7 +665,7 @@ string GetLastClosedDealsJSON(int maxCount)
                openPrice = HistoryDealGetDouble(checkTicket, DEAL_PRICE);
                openTime = (datetime)HistoryDealGetInteger(checkTicket, DEAL_TIME);
                
-               // ✅ اصلاح مهم: خواندن نوع معامله از Deal ورودی (نه خروجی)
+               // خواندن نوع معامله از Deal ورودی
                ENUM_DEAL_TYPE inDealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(checkTicket, DEAL_TYPE);
                typeStr = (inDealType == DEAL_TYPE_BUY) ? "BUY" : "SELL";
                
@@ -674,9 +677,13 @@ string GetLastClosedDealsJSON(int maxCount)
                   sl = HistoryOrderGetDouble(openOrderTicket, ORDER_SL);
                }
                
-               break; // اطلاعات باز شدن پیدا شد، حلقه داخلی را بشکن
+               break;
             }
          }
+         
+         // تبدیل زمان‌ها به UTC با کسر offset بروکر
+         long openTimeUtc  = (long)openTime  - offsetSec;
+         long closeTimeUtc = (long)closeTime - offsetSec;
          
          json += StringFormat(
             "{" +
@@ -697,7 +704,7 @@ string GetLastClosedDealsJSON(int maxCount)
             "}",
             positionId,
             symbol,
-            typeStr, // ✅ حالا مقدار درست (BUY یا SELL واقعی) ارسال می‌شود
+            typeStr,
             volume,
             openPrice,
             closePrice,
@@ -706,8 +713,8 @@ string GetLastClosedDealsJSON(int maxCount)
             profit,
             swap,
             commission,
-            (long)openTime,
-            (long)closeTime,
+            openTimeUtc,
+            closeTimeUtc,
             commentStr
          );
          
