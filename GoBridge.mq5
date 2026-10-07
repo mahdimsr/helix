@@ -216,14 +216,20 @@ string GetCandlesJSON(string symbol, ENUM_TIMEFRAMES tf, int count)
       Print("CopyRates failed. Error: ", GetLastError());
       return "";
    }
+   
+   datetime serverNow = TimeTradeServer();  // زمان دقیق سرور broker
+   datetime utcNow    = TimeGMT();          // UTC دقیق
+   long     offsetSec = (long)serverNow - (long)utcNow;
 
    string json = "[";
    for(int i = 0; i < copied; i++)
    {
       if(i > 0) json += ",";
+      
+      long utcTime = (long)rates[i].time - offsetSec;
 
       json += StringFormat("{\"time\":%I64d,\"open\":%.5f,\"high\":%.5f,\"low\":%.5f,\"close\":%.5f,\"volume\":%I64d}",
-                           (long)rates[i].time,
+                           utcTime,
                            rates[i].open,
                            rates[i].high,
                            rates[i].low,

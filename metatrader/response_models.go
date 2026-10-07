@@ -96,12 +96,6 @@ func (socketResult SocketResult) fetchDataAsCandle() []models.Candle {
 	for i := range candles {
 		t := candles[i].Time
 
-		// نرمال‌سازی: اگر زمان به میلی‌ثانیه بود، به ثانیه تبدیل کن
-		// (عدد 32503680000 معادل سال 3000 میلادی به ثانیه است)
-		if t > 32503680000 {
-			t = t / 1000
-		}
-
 		candles[i].Time = t
 		// تبدیل Unix Timestamp به time.Time با منطقه زمانی UTC
 		candles[i].ReadableTime = time.Unix(t, 0).UTC()

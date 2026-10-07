@@ -43,7 +43,7 @@ func Handle(conn net.Conn) {
 
 	symbol := "XAUUSD"
 	timeframe := "PERIOD_M15"
-	candlesCount := 200
+	candlesCount := 3
 
 	ticketRepo, err := database.NewFileRepository("tickets.json")
 	if err != nil {
@@ -169,89 +169,8 @@ func Handle(conn net.Conn) {
 					}*/
 
 					// by percentage
-					if progressPercent >= 90 {
+					/*if progressPercent >= 90 {
 						closeOrder(*client, order.Ticket)
-					}
-
-					/*if progressPercent >= 20.0 {
-
-						newSl := riskFree(order, buffer)
-
-						needsUpdate := false
-						if isBuy && order.Sl < newSl {
-							// SL هنوز خیلی پایین است، باید بالا بیاید
-							needsUpdate = true
-						} else if !isBuy && order.Sl > newSl {
-							needsUpdate = true // قیمت پایین آمده، SL هم باید پایین‌تر بیاید
-						}
-
-						if needsUpdate {
-							log.Println("Need to update SL in 20 percent")
-							err = updateOrder(*client, order.Ticket, newSl, order.Tp)
-							if err != nil {
-								log.Printf("❌ Update TP/SL error for ticket %d: %s", order.Ticket, err)
-							} else {
-								log.Printf("✅ Successfully updated TP/SL for ticket %d", order.Ticket)
-							}
-						} else {
-							log.Println("Noooo Need to update SL in 20 percent")
-						}
-					}
-
-					if progressPercent >= 50 {
-
-						newSl := CalculatePriceAtPercent(order.EntryPrice, order.Tp, 20)
-
-						needsUpdate := false
-						if isBuy && order.Sl < newSl {
-							needsUpdate = true
-						} else if !isBuy && order.Sl > newSl {
-							needsUpdate = true
-						}
-
-						if needsUpdate {
-
-							log.Println("Need to update SL in 50 percent")
-
-							err = updateOrder(*client, order.Ticket, newSl, order.Tp)
-							if err != nil {
-								log.Printf("❌ Update TP/SL error for ticket %d: %s", order.Ticket, err)
-							} else {
-								log.Printf("✅ Successfully updated TP/SL for ticket %d", order.Ticket)
-							}
-						} else {
-							log.Println("Noooo Need to update SL in 50 percent")
-						}
-					}
-
-					if progressPercent >= 80 {
-
-						newSl := CalculatePriceAtPercent(order.EntryPrice, order.Tp, 60)
-
-						totalDistance := math.Abs(order.Tp - order.EntryPrice)
-						extensionAmount := totalDistance * 0.10
-
-						var newTp float64
-						if isBuy {
-							newTp = order.Tp + extensionAmount
-						} else {
-							newTp = order.Tp - extensionAmount
-						}
-
-						needsUpdate := false
-						if isBuy && newTp > order.Tp {
-							needsUpdate = true
-						} else if !isBuy && newTp < order.Tp {
-							needsUpdate = true
-						}
-
-						if needsUpdate {
-							err = updateOrder(*client, order.Ticket, newSl, newTp)
-							if err == nil {
-								order.Tp = newTp
-								log.Printf("🎯 TP Extended to: %.5f", newTp)
-							}
-						}
 					}*/
 
 				case 2000:
@@ -526,9 +445,9 @@ func CalculatePriceAtPercent(entryPrice, tpPrice, percent float64) float64 {
 
 func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo *database.FileRepository) {
 
-	lastClosedCandle := htf[len(htf)-2]
+	lastClosedCandle, isClosed := getLastClosedCandle(htf, "M15")
 
-	if lastClosedCandle.BodyPercentage() > 0.1 && lastClosedCandle.IsMarubozu() {
+	if isClosed && lastClosedCandle.BodyPercentage() > 0.1 && lastClosedCandle.IsMarubozu() {
 
 		signalStr := "NONE"
 		signal := indicators.NoneSignal
@@ -590,5 +509,80 @@ func requestHistory(client MTClient, count int) {
 		log.Println("❌ Failed to request history:", err)
 	} else {
 		log.Printf("📊 Requested last %d closed trades from MT5", count)
+	}
+}
+
+func getLastClosedCandle(candles []models.Candle, timeframe string) (models.Candle, bool) {
+	if len(candles) == 0 {
+		return models.Candle{}, false
+	}
+
+	unixNow := time.Now().Unix()
+	tfSeconds := timeframeToSeconds(timeframe)
+
+	// محاسبه زمان باز شدن کندل فعلی به صورت time.Time
+	currentCandleOpenUnixMilli := unixNow - (unixNow % tfSeconds)
+	currentOpenTime := time.Unix(currentCandleOpenUnixMilli, 0).UTC()
+
+	log.Printf("current: %s",
+		time.Unix(currentCandleOpenUnixMilli, 0).UTC().Format("2006-01-02 15:04:05"),
+	)
+
+	log.Println(" --- ")
+
+	var lastClosed models.Candle
+	found := false
+
+	for _, c := range candles {
+		// استفاده از ReadableTime به جای Time
+		candleTime := time.Unix(c.Time, 0).UTC()
+
+		log.Printf("candle: %s",
+			candleTime,
+		)
+
+		log.Printf("time: %d", c.Time)
+
+		log.Printf("readbale: %s",
+			c.ReadableTime.UTC().Format("2006-01-02 15:04:05"),
+		)
+
+		log.Println(" --- ")
+
+		// شرط: زمان کندل باید اکیداً قبل از زمان باز شدن کندل فعلی باشد
+		if candleTime.Before(currentOpenTime) {
+			if !found || candleTime.After(lastClosed.ReadableTime.UTC()) {
+				lastClosed = c
+				found = true
+			}
+		}
+	}
+
+	if !found {
+		return models.Candle{}, found
+	}
+
+	return lastClosed, found
+}
+
+// تابع تبدیل تایم‌فریم به ثانیه (همانند قبل)
+func timeframeToSeconds(tf string) int64 {
+	switch strings.ToUpper(tf) {
+	case "M1":
+		return 60
+	case "M5":
+		return 5 * 60
+	case "M15":
+		return 15 * 60
+	case "M30":
+		return 30 * 60
+	case "H1":
+		return 60 * 60
+	case "H4":
+		return 4 * 60 * 60
+	case "D1":
+		return 24 * 60 * 60
+	default:
+		return 15 * 60
 	}
 }
