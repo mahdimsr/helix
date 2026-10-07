@@ -49,11 +49,11 @@ type ToleranceConfig struct {
 // DefaultToleranceConfig مقادیر پیش‌فرض
 func DefaultToleranceConfig() ToleranceConfig {
 	return ToleranceConfig{
-		Entry: 4.0,
-		Exit:  4.0,
-		TP:    4.0,
-		SL:    4.0,
-		PnL:   1.0,
+		Entry: 0.5,
+		Exit:  0.5,
+		TP:    0.2,
+		SL:    0.2,
+		PnL:   0.5,
 	}
 }
 
