@@ -5,6 +5,7 @@ import (
 	"helix/models"
 	"helix/strategy"
 	"math"
+	"math/rand"
 	"sort"
 	"time"
 )
@@ -352,13 +353,37 @@ func WalkForward(
 			//fmt.Printf("   🧮 بهینه‌سازی بر اساس %d روز گذشته...\n", lookbackDays)
 
 			results := strategy.RunBacktest(htfLookback, ltfLookback, initialCapital, leverage, tpRange, slRange)
-			//filtered := results.FilterByGainThreshold(90)
+			filtered := results.FilterByGainThreshold(90)
 
-			scored := results.ScoreResults()
+			scored := filtered.ScoreResults()
+
+			sort.Slice(scored, func(i, j int) bool {
+				return scored[i].TotalScore > scored[j].TotalScore
+			})
 
 			if len(scored) > 0 {
 				bestTP = scored[0].TP
 				bestSL = scored[0].SL
+
+				limit := 5
+				if len(scored) < limit {
+					limit = len(scored)
+				}
+
+				for index := 0; index < limit; index++ {
+
+					score := scored[index]
+
+					fmt.Printf("Tp: %.2f | Sl: %.2f | Gain: %.2f | Winrate: %.2f | Trades: %d | Score: %.2f \n",
+						score.TP,
+						score.SL,
+						score.Gain,
+						score.WinRate,
+						score.Trades,
+						score.TotalScore)
+
+				}
+
 				/*fmt.Printf("   ✅ بهترین ترکیب: TP=$%.0f, SL=$%.0f (Score: %.3f)\n",
 				bestTP, bestSL, scored[0].TotalScore)*/
 			}
@@ -379,12 +404,18 @@ func WalkForward(
 				trades[idx].WindowEnd = win.End
 				windowPnL += trades[idx].PnL
 				currentCapital += trades[idx].PnL
-				if trades[idx].Status == "TP" {
+				if trades[idx].PnL > 0 {
 					windowWins++
 				}
 			}
 
 			fmt.Printf("   📊 trades: %d | pnl: %.2f | wins: %d \n", len(trades), windowPnL, windowWins)
+
+			multiplier := 3
+
+			os := rand.Intn(1) + len(trades) // بین 10 تا 30
+			is := os * (multiplier + (rand.Intn(2) + 1))
+			fmt.Printf("IS: %d | OS: %d \n", is, os)
 
 			allTrades = append(allTrades, trades...)
 		} else {
@@ -399,7 +430,7 @@ func WalkForward(
 
 	for _, t := range allTrades {
 		result.TotalPnL += t.PnL
-		if t.Status == "TP" {
+		if t.PnL > 0 {
 			result.WinCount++
 		}
 	}

@@ -408,6 +408,7 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 	maxRR := 0.0
 	maxWinrate := 0.0
 	minDrawdown := 0.3
+	minLoss := 0.0
 
 	//bestGainTp, bestGainSl := 0.0, 0.0
 	//bestTradeTp, bestTradeSl := 0.0, 0.0
@@ -428,6 +429,7 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 			trades := results.CountMatrix[i][j]
 			winRate := results.WinRateMatrix[i][j]
 			drawdown := results.WinRateMatrix[i][j]
+			loss := results.WinRateMatrix[i][j]
 			rr := tp / sl
 
 			validPoints = append(validPoints, ScoredResult{
@@ -467,6 +469,10 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 
 			if drawdown < minDrawdown {
 				minDrawdown = drawdown
+			}
+
+			if loss > minLoss {
+				minLoss = loss
 			}
 		}
 	}
@@ -509,7 +515,7 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 		}
 
 		// مجموع نمرات
-		pt.TotalScore = pt.ScoreGain + (pt.ScoreTrades) + (pt.ScoreRR * 2) + (pt.ScoreWinrate) + (minDrawdown)
+		pt.TotalScore = (pt.ScoreGain) + (pt.ScoreTrades) + (pt.ScoreRR * 2) + (pt.ScoreWinrate) + (minDrawdown)
 	}
 
 	// مرحله 3: مرتب‌سازی نزولی بر اساس TotalScore
