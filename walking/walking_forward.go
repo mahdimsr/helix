@@ -353,9 +353,9 @@ func WalkForward(
 			//fmt.Printf("   🧮 بهینه‌سازی بر اساس %d روز گذشته...\n", lookbackDays)
 
 			results := strategy.RunBacktest(htfLookback, ltfLookback, initialCapital, leverage, tpRange, slRange)
-			filtered := results.FilterByGainThreshold(90)
+			//filtered := results.FilterByGainThreshold(90)
 
-			scored := filtered.ScoreResults()
+			scored := results.ScoreResults()
 
 			sort.Slice(scored, func(i, j int) bool {
 				return scored[i].TotalScore > scored[j].TotalScore
@@ -372,15 +372,33 @@ func WalkForward(
 
 				for index := 0; index < limit; index++ {
 
+					var loopTrades []WalkForwardTrade
+
 					score := scored[index]
 
-					fmt.Printf("Tp: %.2f | Sl: %.2f | Gain: %.2f | Winrate: %.2f | Trades: %d | Score: %.2f \n",
+					loopTrades = executeTradesWithFixedTPSL(htfWindow, ltfWindow, currentCapital, leverage, score.TP, score.SL, win.End)
+
+					loopPnL := 0.0
+					loopWins := 0
+					loopCapital := currentCapital
+					for idx := range loopTrades {
+						loopTrades[idx].WindowStart = win.Start
+						loopTrades[idx].WindowEnd = win.End
+						loopPnL += loopTrades[idx].PnL
+						loopCapital += loopTrades[idx].PnL
+						if loopTrades[idx].PnL > 0 {
+							loopWins++
+						}
+					}
+
+					fmt.Printf("Tp: %.2f | Sl: %.2f | Gain: %.2f | Winrate: %.2f | Trades: %d | Score: %.2f || OS-Gain: %.2f \n",
 						score.TP,
 						score.SL,
 						score.Gain,
 						score.WinRate,
 						score.Trades,
-						score.TotalScore)
+						score.TotalScore,
+						loopPnL)
 
 				}
 
