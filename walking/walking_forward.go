@@ -463,7 +463,7 @@ func WalkForward(
 	fmt.Printf("   تریدهای برنده: %d\n", result.WinCount)
 	fmt.Printf("   Win Rate: %.1f%%\n", result.WinRate)
 	fmt.Printf("   سود خالص کل: $%.2f\n", result.TotalPnL)
-	fmt.Printf("   سرمایه نهایی: $%.2f\n", initialCapital+result.TotalPnL)
+	fmt.Printf("   سرمایه نهایی: $%.2f\n", initialCapital+(result.TotalPnL))
 	fmt.Println("═════════════════════════════════════════════════════════")
 
 	return result
