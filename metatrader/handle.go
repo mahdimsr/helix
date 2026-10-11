@@ -244,10 +244,10 @@ func Handle(conn net.Conn) {
 
 				// تبدیل به فرمت مورد نیاز اکسل
 				livetrades := make([]walking.WalkForwardTrade, 0, len(trades))
-				threeHoursBefore := time.Now().Add(-3 * time.Hour).Unix()
+				oneHoursBefore := time.Now().Add(-1 * time.Hour).Unix()
 				for _, t := range trades {
 
-					if t.OpenTime < threeHoursBefore {
+					if t.OpenTime < oneHoursBefore {
 						continue
 					}
 
@@ -282,13 +282,27 @@ func Handle(conn net.Conn) {
 
 				// ۲. ارسال به تلگرام
 				telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
+				appName := os.Getenv("APP_NAME")
 				telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
 
-				caption := fmt.Sprintf(
-					"📊 *گزارش دوره‌ای (۳ ساعته)*\n"+
-						"🕒 زمان گزارش: %s",
-					time.Now().Format("2006-01-02 15:04"),
-				)
+				wins := 0
+				for _, livetrade := range livetrades {
+					if livetrade.PnL > 0 {
+						wins = wins + 1
+					}
+				}
+
+				winrate := (wins / len(livetrades)) * 100
+				oneHourBeforeString := time.Now().Add(-1 * time.Hour).Format("2006-01-02 15:04")
+				nowString := time.Now().Format("2006-01-02 15:04")
+
+				caption := fmt.Sprintf("strategy: %s | timeframe: %s \n winrate: %.2f | trades: %d \n start: %s \n end: %s",
+					appName,
+					"15m",
+					float64(winrate),
+					len(livetrades),
+					oneHourBeforeString,
+					nowString)
 
 				// استفاده از تابع SendExcelToTelegram که قبلاً طراحی کردیم
 				err = table.SendExcelToTelegram(telegramApiKey, telegramChatId, excelData, caption)
