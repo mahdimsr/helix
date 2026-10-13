@@ -464,10 +464,14 @@ func convertBacktestTrades(backtestTrades []walking.WalkForwardTrade) []UnifiedT
 			exitPrice = slPrice
 		}*/
 
-		exitPrice := liveTrade.ExitPrice - 0.08
 		tpPrice := liveTrade.TP
 		slPrice := liveTrade.SL
-		pnl := liveTrade.PnL - 0.3
+		pnl := int(math.Round(liveTrade.PnL))
+
+		exitPrice := slPrice
+		if pnl > 0 {
+			exitPrice = tpPrice
+		}
 
 		trades = append(trades, UnifiedTrade{
 			OpenTime:  time.Unix(liveTrade.EntryTime, 0).Truncate(time.Minute),
@@ -477,7 +481,7 @@ func convertBacktestTrades(backtestTrades []walking.WalkForwardTrade) []UnifiedT
 			Exit:      exitPrice,
 			TP:        tpPrice,
 			SL:        slPrice,
-			PnL:       pnl,
+			PnL:       float64(pnl),
 			Source:    "BackTest",
 		})
 	}
