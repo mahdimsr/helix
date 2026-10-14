@@ -94,7 +94,7 @@ func filterCandlesByTime(candles []models.Candle, start, end int64) []models.Can
 	return filtered
 }
 
-func filterLTFCandlesForTrading(ltfCandles []models.Candle, entryTime, windowEnd int64) []models.Candle {
+func filterLTFCandlesForTrading(ltfCandles []models.Candle, timeframeMinutes int64, entryTime, windowEnd int64) []models.Candle {
 	var filtered []models.Candle
 	const fifteenMinutesInSeconds = 15 * 60
 
@@ -108,6 +108,7 @@ func filterLTFCandlesForTrading(ltfCandles []models.Candle, entryTime, windowEnd
 
 func executeTradesWithFixedTPSL(
 	htfWindow []models.Candle,
+	timeframeMinutes int64,
 	ltfAll []models.Candle,
 	initialCapital float64,
 	leverage float64,
@@ -184,7 +185,7 @@ func executeTradesWithFixedTPSL(
 		}
 
 		// پیدا کردن کندل‌های LTF بعد از ورود و قبل از پایان پنجره
-		ltfForTrade := filterLTFCandlesForTrading(ltfAll, entryTime, windowEnd)
+		ltfForTrade := filterLTFCandlesForTrading(ltfAll, timeframeMinutes, entryTime, windowEnd)
 
 		var status string
 		var exitPrice float64
@@ -285,6 +286,7 @@ func executeTradesWithFixedTPSL(
 
 func WalkForward(
 	htfCandles []models.Candle,
+	timeframeMinutes int64,
 	ltfCandles []models.Candle,
 	startTime int64,
 	endTime int64,
@@ -376,7 +378,7 @@ func WalkForward(
 
 					score := scored[index]
 
-					loopTrades = executeTradesWithFixedTPSL(htfWindow, ltfWindow, currentCapital, leverage, score.TP, score.SL, win.End)
+					loopTrades = executeTradesWithFixedTPSL(htfWindow, timeframeMinutes, ltfWindow, currentCapital, leverage, score.TP, score.SL, win.End)
 
 					loopPnL := 0.0
 					loopWins := 0
@@ -413,7 +415,7 @@ func WalkForward(
 		if bestTP > 0 && bestSL > 0 && len(htfWindow) > 0 && len(ltfWindow) > 0 {
 			fmt.Printf("   🔄 ترید با TP=$%.0f, SL=$%.0f\n", bestTP, bestSL)
 
-			trades := executeTradesWithFixedTPSL(htfWindow, ltfWindow, currentCapital, leverage, bestTP, bestSL, win.End)
+			trades := executeTradesWithFixedTPSL(htfWindow, timeframeMinutes, ltfWindow, currentCapital, leverage, bestTP, bestSL, win.End)
 
 			windowPnL := 0.0
 			windowWins := 0
@@ -558,7 +560,7 @@ func WalkForwardAllScored(
 			state := comboMap[key]
 
 			trades := executeTradesWithFixedTPSL(
-				htfWindow, ltfWindow,
+				htfWindow, 15, ltfWindow,
 				state.Capital, leverage,
 				sc.TP, sc.SL,
 				win.End,
@@ -839,7 +841,7 @@ func WalkForwardWithBodyGroups(
 				fmt.Printf("   🔄 اجرای ترید با ترکیب‌های بهینه‌شده...\n")
 
 				trades := executeTradesWithBodyGroups(
-					htfWindow, ltfWindow, currentCapital, leverage, currentWindowGroups, win.End)
+					htfWindow, 15, ltfWindow, currentCapital, leverage, currentWindowGroups, win.End)
 
 				windowPnL := 0.0
 				windowWins := 0
@@ -953,6 +955,7 @@ func printGroupCombinations(groups WindowGroups) {
 // executeTradesWithBodyGroups ترید با ترکیب‌های گروه‌بندی شده
 func executeTradesWithBodyGroups(
 	htfWindow []models.Candle,
+	timeframeMinutes int64,
 	ltfAll []models.Candle,
 	initialCapital float64,
 	leverage float64,
@@ -1029,7 +1032,7 @@ func executeTradesWithBodyGroups(
 			slPrice = entryPrice + priceDistSL
 		}
 
-		ltfForTrade := filterLTFCandlesForTrading(ltfAll, entryTime, windowEnd)
+		ltfForTrade := filterLTFCandlesForTrading(ltfAll, timeframeMinutes, entryTime, windowEnd)
 
 		var status string
 		var exitPrice float64
@@ -1134,6 +1137,7 @@ func executeTradesWithBodyGroups(
 // ExecuteTradesWithStaticTPSL اجرای ترید با TP/SL ثابت (بدون پنجره و بهینه‌سازی)
 func ExecuteTradesWithStaticTPSL(
 	htfCandles []models.Candle,
+	timeframeMinutes int64,
 	ltfCandles []models.Candle,
 	initialCapital float64,
 	leverage float64,
@@ -1215,7 +1219,7 @@ func ExecuteTradesWithStaticTPSL(
 		}
 
 		// فیلتر کردن کندل‌های LTF برای بررسی خروج
-		ltfForTrade := filterLTFCandlesForTrading(ltfCandles, entryTime, math.MaxInt64)
+		ltfForTrade := filterLTFCandlesForTrading(ltfCandles, timeframeMinutes, entryTime, math.MaxInt64)
 
 		var status string
 		var exitPrice float64
@@ -1374,6 +1378,7 @@ func PrintStaticTrades(trades []WalkForwardTrade) {
 
 func OptimizeWalkForwardParameters(
 	htfCandles []models.Candle,
+	timeframeMinutes int64,
 	ltfCandles []models.Candle,
 	startTime int64,
 	endTime int64,
@@ -1404,7 +1409,7 @@ func OptimizeWalkForwardParameters(
 
 			// اجرای Walk-Forward با این ترکیب
 			wfResult := WalkForward(
-				htfCandles, ltfCandles,
+				htfCandles, timeframeMinutes, ltfCandles,
 				startTime, endTime,
 				windowDays, lookbackDays,
 				initialCapital, leverage,

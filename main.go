@@ -15,31 +15,32 @@ func main() {
 
 	layout := "2006-01-02 15:04:05"
 
-	startTimeObj, err := time.Parse(layout, "2026-06-01 00:00:00")
+	startTimeObj, err := time.Parse(layout, "2026-09-01 00:00:00")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	endTimeObj, err := time.Parse(layout, "2026-07-01 00:00:00")
+	endTimeObj, err := time.Parse(layout, "2026-10-01 00:00:00")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	highCandles, _ := candlesRepo.Fetch(context.Background(), "XAUUSD", "15m", "2026-02-01", "2026-10-01")
-	lowCandles, _ := candlesRepo.Fetch(context.Background(), "XAUUSD", "5m", "2026-02-01", "2026-10-01")
+	highCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSD", "15m", "2026-02-01", "2026-10-13")
+	lowCandles, _ := candlesRepo.Fetch(context.Background(), "BTCUSD", "5m", "2026-02-01", "2026-10-13")
 
-	tpDollars := makeRange(20.0, 40.0, 1.0)
-	slDollars := makeRange(2.0, 2.0, 1.0)
+	tpDollars := makeRange(30.0, 30.0, 1.0)
+	slDollars := makeRange(5.0, 5.0, 1.0)
 
 	result := walking.WalkForward(
 		highCandles,
+		15,
 		lowCandles,
 		startTimeObj.Unix(),
 		endTimeObj.Unix(),
 		1,
 		1,
-		10000.0,   // سرمایه اولیه
-		1.0,       // اهرم
+		1000.0,    // سرمایه اولیه
+		10.0,      // اهرم
 		tpDollars, // TP ثابت: 9 دلار
 		slDollars, // SL ثابت: 13 دلار
 	)

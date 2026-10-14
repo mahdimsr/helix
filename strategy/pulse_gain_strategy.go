@@ -515,7 +515,7 @@ func (results *BacktestOutput) ScoreResults() []ScoredResult {
 		}
 
 		// مجموع نمرات
-		pt.TotalScore = (pt.ScoreGain) + (pt.ScoreTrades) + (pt.ScoreRR * 2) + (pt.ScoreWinrate) + (minDrawdown)
+		pt.TotalScore = (pt.ScoreGain) + (pt.ScoreTrades) + (pt.ScoreRR) + (pt.ScoreWinrate) + (minDrawdown)
 	}
 
 	// مرحله 3: مرتب‌سازی نزولی بر اساس TotalScore
