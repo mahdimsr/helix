@@ -30,7 +30,7 @@ func Handle(conn net.Conn) {
 	}(conn)
 	client := NewMT5Client(conn)
 
-	ticker := time.NewTicker(15 * time.Minute)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	tickerSec := time.NewTicker(3 * time.Second)
@@ -44,6 +44,8 @@ func Handle(conn net.Conn) {
 	symbol := "XAUUSD"
 	timeframe := "PERIOD_M15"
 	candlesCount := 3
+
+	riskFreeApplied := make(map[int64]bool)
 
 	ticketRepo, err := database.NewFileRepository("tickets.json")
 	if err != nil {
@@ -169,9 +171,15 @@ func Handle(conn net.Conn) {
 					}*/
 
 					// by percentage
-					/*if progressPercent >= 90 {
-						closeOrder(*client, order.Ticket)
-					}*/
+					if progressPercent >= 20 {
+						riskFreeSl := riskFree(order, 0.3)
+						err = updateOrder(*client, order.Ticket, riskFreeSl, order.Tp)
+						if err != nil {
+							// notify
+						}
+
+						riskFreeApplied[order.Ticket] = true
+					}
 
 				case 2000:
 					log.Printf("🔒 Position CLOSED. Close Price: %.5f | Info: %s", order.Price, order.Comment)
@@ -210,6 +218,7 @@ func Handle(conn net.Conn) {
 
 					telegramService.SendMessage(telegramChatId, text, "HTML")
 
+					delete(riskFreeApplied, order.Ticket)
 					err := ticketRepo.RemoveTicket(order.Ticket)
 					if err != nil {
 						fmt.Println("Remove Ticket error: ", err)
@@ -270,46 +279,46 @@ func Handle(conn net.Conn) {
 						fmt.Println(t.Format("2006-01-02 15:04:05"))
 
 					}
-				}
 
-				// ۱. ساخت فایل اکسل (با اس
-				//تفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
-				excelData, err := table.GenerateExcelFile(livetrades, livetrades)
-				if err != nil {
-					log.Println("❌ Error generating Excel:", err)
-					continue
-				}
-
-				// ۲. ارسال به تلگرام
-				telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
-				appName := os.Getenv("APP_NAME")
-				telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
-
-				wins := 0
-				for _, livetrade := range livetrades {
-					if livetrade.PnL > 0 {
-						wins = wins + 1
+					// ۱. ساخت فایل اکسل (با اس
+					//تفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
+					excelData, err := table.GenerateExcelFile(livetrades, livetrades)
+					if err != nil {
+						log.Println("❌ Error generating Excel:", err)
+						continue
 					}
-				}
 
-				winrate := (wins / len(livetrades)) * 100
-				oneHourBeforeString := time.Now().Add(-1 * time.Hour).Format("2006-01-02 15:04")
-				nowString := time.Now().Format("2006-01-02 15:04")
+					// ۲. ارسال به تلگرام
+					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
+					appName := os.Getenv("APP_NAME")
+					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
 
-				caption := fmt.Sprintf("strategy: %s | timeframe: %s \n winrate: %.2f | trades: %d \n start: %s \n end: %s",
-					appName,
-					"15m",
-					float64(winrate),
-					len(livetrades),
-					oneHourBeforeString,
-					nowString)
+					wins := 0
+					for _, livetrade := range livetrades {
+						if livetrade.PnL > 0 {
+							wins = wins + 1
+						}
+					}
 
-				// استفاده از تابع SendExcelToTelegram که قبلاً طراحی کردیم
-				err = table.SendExcelToTelegram(telegramApiKey, telegramChatId, excelData, caption)
-				if err != nil {
-					log.Println("❌ Failed to send Excel to Telegram:", err)
-				} else {
-					log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
+					winrate := (wins / len(livetrades)) * 100
+					oneHourBeforeString := time.Now().Add(-1 * time.Hour).Format("2006-01-02 15:04")
+					nowString := time.Now().Format("2006-01-02 15:04")
+
+					caption := fmt.Sprintf("strategy: %s | timeframe: %s \n winrate: %.2f | trades: %d \n start: %s \n end: %s",
+						appName,
+						"15m",
+						float64(winrate),
+						len(livetrades),
+						oneHourBeforeString,
+						nowString)
+
+					// استفاده از تابع SendExcelToTelegram که قبلاً طراحی کردیم
+					err = table.SendExcelToTelegram(telegramApiKey, telegramChatId, excelData, caption)
+					if err != nil {
+						log.Println("❌ Failed to send Excel to Telegram:", err)
+					} else {
+						log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
+					}
 				}
 			}
 		}
@@ -459,7 +468,7 @@ func CalculatePriceAtPercent(entryPrice, tpPrice, percent float64) float64 {
 
 func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo *database.FileRepository) {
 
-	lastClosedCandle, isClosed := getLastClosedCandle(htf, "M15")
+	lastClosedCandle, isClosed := getLastClosedCandle(htf, "M5")
 
 	isOrderOpen := false
 	allTickets := repo.GetAllTickets()
@@ -474,7 +483,7 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 		}
 	}
 
-	if isClosed && !isOrderOpen && lastClosedCandle.BodyPercentage() > 0.1 && lastClosedCandle.IsMarubozu() {
+	if isClosed && !isOrderOpen && lastClosedCandle.IsMarubozu() {
 
 		signalStr := "NONE"
 		signal := indicators.NoneSignal
@@ -491,24 +500,11 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 		//leverage := 10.0
 		//maxLots, maxVolumeUSD := CalculateMaxVolume(amountUsd, lastClosedCandle.Close, leverage, 100)
 
-		maxVolumeUSD := 10000.0
-		maxLots := 0.02
+		maxVolumeUSD := 4500.0
+		maxLots := 0.01
 
-		var tpPnl, slPnl float64
-
-		if lastClosedCandle.BodyPercentage() >= 0.1 && lastClosedCandle.BodyPercentage() < 0.2 {
-			tpPnl = 13
-			slPnl = 2
-		} else if lastClosedCandle.BodyPercentage() >= 0.2 && lastClosedCandle.BodyPercentage() < 0.4 {
-			tpPnl = 19
-			slPnl = 2
-		} else if lastClosedCandle.BodyPercentage() >= 0.4 && lastClosedCandle.BodyPercentage() < 0.6 {
-			tpPnl = 22
-			slPnl = 2
-		} else if lastClosedCandle.BodyPercentage() >= 0.6 {
-			tpPnl = 22
-			slPnl = 2
-		}
+		tpPnl := 20.0
+		slPnl := 2.0
 
 		if signal != indicators.NoneSignal {
 			var tpPrice float64
