@@ -1,12 +1,18 @@
 package exchange
 
 import (
+	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"helix/database"
 	"helix/models"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -173,4 +179,108 @@ func parseBinanceCandles(jsonData []byte) ([]models.Candle, error) {
 	}
 
 	return candles, nil
+}
+
+func ImportMT4CSVToMongoDB(csvFilePath string, symbol string, timeframe string) error {
+
+	// ─────────────────────────────────────────────
+	// 1. خواندن فایل CSV
+	// ─────────────────────────────────────────────
+	file, err := os.Open(csvFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to open csv file: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.Comma = '\t' // متاتریدر از Tab به عنوان جداکننده استفاده می‌کند
+	reader.LazyQuotes = true
+	reader.TrimLeadingSpace = true
+
+	records, err := reader.ReadAll()
+	if err != nil {
+		return fmt.Errorf("failed to read csv: %w", err)
+	}
+
+	if len(records) < 2 {
+		return fmt.Errorf("csv file is empty or has only header")
+	}
+
+	// ─────────────────────────────────────────────
+	// 2. تبدیل رکوردها به Candle
+	// ─────────────────────────────────────────────
+	var candles []models.Candle
+
+	for i, record := range records[1:] { // رد کردن هدر
+		if len(record) < 7 {
+			log.Printf("skipping row %d: insufficient columns", i+2)
+			continue
+		}
+
+		// ترکیب Date و Time: "2026.09.01" + "01:00:00"
+		dateTimeStr := strings.TrimSpace(record[0]) + " " + strings.TrimSpace(record[1])
+
+		t, err := time.Parse("2006.01.02 15:04:05", dateTimeStr)
+		if err != nil {
+			log.Printf("row %d: failed to parse time '%s': %v", i+2, dateTimeStr, err)
+			continue
+		}
+
+		open, err := strconv.ParseFloat(strings.TrimSpace(record[2]), 64)
+		if err != nil {
+			log.Printf("row %d: failed to parse open: %v", i+2, err)
+			continue
+		}
+
+		high, err := strconv.ParseFloat(strings.TrimSpace(record[3]), 64)
+		if err != nil {
+			log.Printf("row %d: failed to parse high: %v", i+2, err)
+			continue
+		}
+
+		low, err := strconv.ParseFloat(strings.TrimSpace(record[4]), 64)
+		if err != nil {
+			log.Printf("row %d: failed to parse low: %v", i+2, err)
+			continue
+		}
+
+		closePrice, err := strconv.ParseFloat(strings.TrimSpace(record[5]), 64)
+		if err != nil {
+			log.Printf("row %d: failed to parse close: %v", i+2, err)
+			continue
+		}
+
+		tickVol, _ := strconv.ParseInt(strings.TrimSpace(record[6]), 10, 64)
+
+		candle := models.Candle{
+			Open:         open,
+			High:         high,
+			Close:        closePrice,
+			Low:          low,
+			Volume:       tickVol, // در فارکس Volume معمولاً 0 است، از TickVolume استفاده می‌کنیم
+			Time:         t.UnixMilli(),
+			ReadableTime: t,
+			Symbol:       symbol,
+			Timeframe:    timeframe,
+		}
+
+		candles = append(candles, candle)
+	}
+
+	if len(candles) == 0 {
+		return fmt.Errorf("no valid candles found in csv file")
+	}
+
+	db := database.MongoConnect()
+	candlesRepo := database.NewCandleRepository(&db)
+
+	// درج دسته‌ای (Batch Insert)
+	err = candlesRepo.CreateMany(context.Background(), candles)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("✅ Successfully inserted %d candles\n", len(candles))
+
+	return nil
 }
