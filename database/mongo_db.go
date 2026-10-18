@@ -20,7 +20,7 @@ func MongoConnect() mongo.Database {
 		log.Fatal(err)
 	}
 
-	db := client.Database("nova")
+	db := client.Database("pulse")
 
 	return *db
 }

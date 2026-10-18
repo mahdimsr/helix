@@ -115,6 +115,7 @@ func executeTradesWithFixedTPSL(
 	tpUSD float64,
 	slUSD float64,
 	windowEnd int64,
+	decreaseFee float64,
 ) []WalkForwardTrade {
 
 	windowEnd = NormalizeTimestamp(windowEnd)
@@ -249,6 +250,20 @@ func executeTradesWithFixedTPSL(
 			pnl = (entryPrice - exitPrice) * quantity
 		}
 
+		if decreaseFee > 0 {
+			/*feeUsd := CalcFeeUSD(
+				currentCapital,
+				entryPrice,
+				10,
+				decreaseFee,
+				exitPrice,
+			)*/
+
+			feeUsd := decreaseFee
+
+			pnl = pnl - feeUsd
+		}
+
 		// 🆕 ذخیره سرمایه قبل از آپدیت
 		capitalBefore := currentCapital
 
@@ -296,6 +311,7 @@ func WalkForward(
 	leverage float64,
 	tpRange []float64,
 	slRange []float64,
+	decreaseFee float64,
 ) *WalkForwardResult {
 
 	htfCandles = NormalizeCandleTimes(htfCandles)
@@ -378,7 +394,7 @@ func WalkForward(
 
 					score := scored[index]
 
-					loopTrades = executeTradesWithFixedTPSL(htfWindow, timeframeMinutes, ltfWindow, currentCapital, leverage, score.TP, score.SL, win.End)
+					loopTrades = executeTradesWithFixedTPSL(htfWindow, timeframeMinutes, ltfWindow, currentCapital, leverage, score.TP, score.SL, win.End, decreaseFee)
 
 					loopPnL := 0.0
 					loopWins := 0
@@ -415,7 +431,7 @@ func WalkForward(
 		if bestTP > 0 && bestSL > 0 && len(htfWindow) > 0 && len(ltfWindow) > 0 {
 			fmt.Printf("   🔄 ترید با TP=$%.0f, SL=$%.0f\n", bestTP, bestSL)
 
-			trades := executeTradesWithFixedTPSL(htfWindow, timeframeMinutes, ltfWindow, currentCapital, leverage, bestTP, bestSL, win.End)
+			trades := executeTradesWithFixedTPSL(htfWindow, timeframeMinutes, ltfWindow, currentCapital, leverage, bestTP, bestSL, win.End, decreaseFee)
 
 			windowPnL := 0.0
 			windowWins := 0
@@ -564,6 +580,7 @@ func WalkForwardAllScored(
 				state.Capital, leverage,
 				sc.TP, sc.SL,
 				win.End,
+				0.0,
 			)
 
 			for idx := range trades {
@@ -1382,7 +1399,7 @@ func OptimizeWalkForwardParameters(
 	ltfCandles []models.Candle,
 	startTime int64,
 	endTime int64,
-	windowDaysRange []int, // مثلاً []int{1, 2, 3, 5, 7}
+	windowDaysRange []int,   // مثلاً []int{1, 2, 3, 5, 7}
 	lookbackDaysRange []int, // مثلاً []int{7, 10, 14, 21, 30}
 	initialCapital float64,
 	leverage float64,
@@ -1414,6 +1431,7 @@ func OptimizeWalkForwardParameters(
 				windowDays, lookbackDays,
 				initialCapital, leverage,
 				tpRange, slRange,
+				0.0,
 			)
 
 			// ذخیره نتیجه
@@ -1455,4 +1473,18 @@ func OptimizeWalkForwardParameters(
 	fmt.Println("═════════════════════════════════════════════════════════")
 
 	return result
+}
+
+func CalcFeeUSD(capitalUSD, currentPrice, leverage, feePercent, exitPrice float64) float64 {
+	quantity := (capitalUSD * leverage) / currentPrice
+
+	entryNotional := quantity * currentPrice // = capitalUSD * leverage
+	exitNotional := quantity * exitPrice
+
+	feeRate := feePercent / 100.0
+
+	entryFee := entryNotional * feeRate
+	exitFee := exitNotional * feeRate
+
+	return entryFee + exitFee
 }
