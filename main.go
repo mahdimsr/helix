@@ -12,7 +12,7 @@ func main() {
 
 	const ADDRESS = "127.0.0.1:8585"
 
-	minutes := 5
+	minutes := 15
 
 	fmt.Printf("Starting Listener...")
 

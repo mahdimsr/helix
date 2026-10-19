@@ -30,13 +30,13 @@ func Handle(conn net.Conn) {
 	}(conn)
 	client := NewMT5Client(conn)
 
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
 	tickerSec := time.NewTicker(3 * time.Second)
 	defer tickerSec.Stop()
 
-	ticker3h := time.NewTicker(3 * time.Hour)
+	ticker3h := time.NewTicker(1 * time.Hour)
 	defer ticker3h.Stop()
 
 	_ = godotenv.Load()
@@ -306,7 +306,7 @@ func Handle(conn net.Conn) {
 
 					caption := fmt.Sprintf("strategy: %s | timeframe: %s \n winrate: %.2f | trades: %d \n start: %s \n end: %s",
 						appName,
-						"15m",
+						"5m",
 						float64(winrate),
 						len(livetrades),
 						oneHourBeforeString,
@@ -468,7 +468,7 @@ func CalculatePriceAtPercent(entryPrice, tpPrice, percent float64) float64 {
 
 func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo *database.FileRepository) {
 
-	lastClosedCandle, isClosed := getLastClosedCandle(htf, "M5")
+	lastClosedCandle, isClosed := getLastClosedCandle(htf, "M15")
 
 	isOrderOpen := false
 	allTickets := repo.GetAllTickets()
