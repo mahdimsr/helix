@@ -46,6 +46,7 @@ func Handle(conn net.Conn) {
 	candlesCount := 3
 
 	riskFreeApplied := make(map[int64]bool)
+	twentyPercentApplied := make(map[int64]bool)
 
 	ticketRepo, err := database.NewFileRepository("tickets.json")
 	if err != nil {
@@ -173,12 +174,32 @@ func Handle(conn net.Conn) {
 					// by percentage
 					if progressPercent >= 20 {
 						riskFreeSl := riskFree(order, 0.3)
-						err = updateOrder(*client, order.Ticket, riskFreeSl, order.Tp)
-						if err != nil {
-							// notify
-						}
 
-						riskFreeApplied[order.Ticket] = true
+						_, ok := riskFreeApplied[order.Ticket]
+
+						if !ok {
+							err = updateOrder(*client, order.Ticket, riskFreeSl, order.Tp)
+							if err != nil {
+								// notify
+							}
+
+							riskFreeApplied[order.Ticket] = true
+						}
+					}
+
+					if progressPercent >= 45 {
+
+						newSl := CalculatePriceAtPercent(order.EntryPrice, order.Tp, 20)
+						_, twentyPercentExists := twentyPercentApplied[order.Ticket]
+						if !twentyPercentExists {
+
+							err = updateOrder(*client, order.Ticket, newSl, order.Tp)
+							if err != nil {
+								// notify
+							}
+
+							twentyPercentApplied[order.Ticket] = true
+						}
 					}
 
 				case 2000:
@@ -219,6 +240,7 @@ func Handle(conn net.Conn) {
 					telegramService.SendMessage(telegramChatId, text, "HTML")
 
 					delete(riskFreeApplied, order.Ticket)
+					delete(twentyPercentApplied, order.Ticket)
 					err := ticketRepo.RemoveTicket(order.Ticket)
 					if err != nil {
 						fmt.Println("Remove Ticket error: ", err)
