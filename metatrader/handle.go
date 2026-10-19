@@ -282,7 +282,7 @@ func Handle(conn net.Conn) {
 
 					// ۱. ساخت فایل اکسل (با اس
 					//تفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
-					excelData, err := table.GenerateExcelFile(livetrades, livetrades)
+					excelData, err := table.GenerateExcelFileWithBacktest(livetrades, livetrades)
 					if err != nil {
 						log.Println("❌ Error generating Excel:", err)
 						continue

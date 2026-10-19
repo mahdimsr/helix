@@ -6,6 +6,7 @@ import (
 	"helix/walking"
 	"io"
 	"math"
+	"math/rand"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -322,6 +323,243 @@ func GenerateExcelFile(liveTrades []walking.WalkForwardTrade, backtestTrades []w
 	return buf.Bytes(), nil
 }
 
+func GenerateExcelFileWithBacktest(liveTrades []walking.WalkForwardTrade, backtestTrades []walking.WalkForwardTrade) ([]byte, error) {
+
+	// ۱. تبدیل هر دو لیست به فرمت یکپارچه
+	unifiedLive := convertLiveTrades(liveTrades)
+	unifiedBacktest := convertBacktestTrades(backtestTrades)
+
+	// ۲. مرتب‌سازی بر اساس OpenTime
+	sort.Slice(unifiedLive, func(i, j int) bool {
+		return unifiedLive[i].OpenTime.Before(unifiedLive[j].OpenTime)
+	})
+	sort.Slice(unifiedBacktest, func(i, j int) bool {
+		return unifiedBacktest[i].OpenTime.Before(unifiedBacktest[j].OpenTime)
+	})
+
+	// ۳. تطبیق تریدها با اختلاف حداکثر ۳ ثانیه
+	matchedRows := matchTrades(unifiedLive, unifiedBacktest, 3*time.Second)
+
+	// ۴. ساخت فایل اکسل
+	f := excelize.NewFile()
+	defer f.Close()
+
+	sheetName := "Comparison"
+	index, _ := f.NewSheet(sheetName)
+	f.SetActiveSheet(index)
+	f.DeleteSheet("Sheet1")
+
+	// ۵. هدرها (اکنون ۱۶ ستون)
+	headers := []string{
+		"Live_Open_Time", "Live_Type", "Live_Entry", "Live_Exit", "Live_TP", "Live_SL", "Live_PnL",
+		"EX_Open_Time", "EX_Type", "EX_Entry", "EX_Exit", "EX_TP", "EX_SL", "EX_PnL",
+		"BT_Open_Time", "BT_Type", "BT_Entry", "BT_Exit", "BT_TP", "BT_SL", "BT_PnL",
+		"Match", "Similarity (%)", // ✅ ستون جدید اضافه شد
+	}
+
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheetName, cell, h)
+	}
+
+	// ۶. استایل هدرها
+	headerStyleLive, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF", Size: 11},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#2F5496"}},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+	})
+	headerStyleBT, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF", Size: 11},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#548235"}},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+	})
+	headerStyleNeutral, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF", Size: 11},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#404040"}},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+	})
+
+	for i := 0; i < len(headers); i++ {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		// ستون‌های ۱۵ و ۱۶ (Match و Similarity) خاکستری
+		if i >= 14 {
+			f.SetCellStyle(sheetName, cell, cell, headerStyleNeutral)
+		} else if i < 7 { // ستون‌های ۱ تا ۷ (Live)
+			f.SetCellStyle(sheetName, cell, cell, headerStyleLive)
+		} else { // ستون‌های ۸ تا ۱۴ (Backtest)
+			f.SetCellStyle(sheetName, cell, cell, headerStyleBT)
+		}
+	}
+
+	// ۷. استایل‌های داده
+	profitStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Color: "#006100"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#C6EFCE"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	lossStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Color: "#9C0006"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFC7CE"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	normalStyle, _ := f.NewStyle(&excelize.Style{
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	matchStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#006100"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#C6EFCE"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	mismatchStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#9C0006"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFC7CE"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+
+	// استایل‌های ستون‌های نظیر
+	entryStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Color: "#404040"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#F2F2F2"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	exitStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Color: "#7F6000"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFF2CC"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	tpStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Color: "#1F4E79"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#DEEAF6"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	slStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Color: "#C65911"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FCE4D6"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+
+	// ✅ استایل‌های جدید برای ستون درصد شباهت (رنگ‌بندی شرطی)
+	highSimStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#006100"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#C6EFCE"}}, // سبز
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	medSimStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#7F6000"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFF2CC"}}, // زرد
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	lowSimStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "#9C0006"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFC7CE"}}, // قرمز
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+
+	// ۸. پر کردن داده‌ها
+	for r, row := range matchedRows {
+		rowNum := r + 2
+
+		// --- بخش Live (ستون‌های ۱ تا ۷) ---
+		if row.Live != nil {
+			cell, _ := excelize.CoordinatesToCellName(1, rowNum)
+			f.SetCellValue(sheetName, cell, row.Live.OpenTime.Format("2006-01-02 15:04:05"))
+			f.SetCellStyle(sheetName, cell, cell, normalStyle)
+
+			writeTradeDataAdjusted(f, sheetName, rowNum, 2, row.Live, profitStyle, lossStyle, normalStyle, entryStyle, exitStyle, tpStyle, slStyle)
+		} else {
+			for c := 1; c <= 7; c++ {
+				cell, _ := excelize.CoordinatesToCellName(c, rowNum)
+				f.SetCellValue(sheetName, cell, "-")
+				f.SetCellStyle(sheetName, cell, cell, normalStyle)
+			}
+		}
+
+		// --- بخش Backtest (ستون‌های ۸ تا ۱۴) ---
+		if row.Backtest != nil {
+			cell, _ := excelize.CoordinatesToCellName(8, rowNum)
+			f.SetCellValue(sheetName, cell, row.Backtest.OpenTime.Format("2006-01-02 15:04:05"))
+			f.SetCellStyle(sheetName, cell, cell, normalStyle)
+
+			writeTradeDataAdjusted(f, sheetName, rowNum, 9, row.Backtest, profitStyle, lossStyle, normalStyle, entryStyle, exitStyle, tpStyle, slStyle)
+		} else {
+			for c := 8; c <= 14; c++ {
+				cell, _ := excelize.CoordinatesToCellName(c, rowNum)
+				f.SetCellValue(sheetName, cell, "-")
+				f.SetCellStyle(sheetName, cell, cell, normalStyle)
+			}
+		}
+
+		// --- بخش Backtest (ستون‌های 15 تا 21) ---
+		if row.Backtest != nil {
+			cell, _ := excelize.CoordinatesToCellName(15, rowNum)
+			f.SetCellValue(sheetName, cell, row.Backtest.OpenTime.Format("2006-01-02 15:04:05"))
+			f.SetCellStyle(sheetName, cell, cell, normalStyle)
+
+			writeTradeDataAdjusted(f, sheetName, rowNum, 16, row.Backtest, profitStyle, lossStyle, normalStyle, entryStyle, exitStyle, tpStyle, slStyle)
+		} else {
+			for c := 15; c <= 21; c++ {
+				cell, _ := excelize.CoordinatesToCellName(c, rowNum)
+				f.SetCellValue(sheetName, cell, "-")
+				f.SetCellStyle(sheetName, cell, cell, normalStyle)
+			}
+		}
+
+		// --- بخش Match (ستون 22) ---
+		cellMatch, _ := excelize.CoordinatesToCellName(22, rowNum)
+		if row.Live != nil && row.Backtest != nil {
+			f.SetCellValue(sheetName, cellMatch, "✅")
+			f.SetCellStyle(sheetName, cellMatch, cellMatch, matchStyle)
+		} else {
+			f.SetCellValue(sheetName, cellMatch, "❌")
+			f.SetCellStyle(sheetName, cellMatch, cellMatch, mismatchStyle)
+		}
+
+		// --- ✅ بخش درصد شباهت (ستون 23) ---
+		cellSim, _ := excelize.CoordinatesToCellName(23, rowNum)
+		defaultTolerance := DefaultToleranceConfig()
+		if row.Live != nil && row.Backtest != nil {
+			similarity := calculateRowSimilarity(row.Live, row.Backtest, defaultTolerance)
+			f.SetCellValue(sheetName, cellSim, fmt.Sprintf("%.1f%%", similarity))
+
+			// اعمال رنگ‌بندی شرطی بر اساس مقدار شباهت
+			var simStyle int
+			if similarity >= 95.0 {
+				simStyle = highSimStyle
+			} else if similarity >= 80.0 {
+				simStyle = medSimStyle
+			} else {
+				simStyle = lowSimStyle
+			}
+			f.SetCellStyle(sheetName, cellSim, cellSim, simStyle)
+		} else {
+			f.SetCellValue(sheetName, cellSim, "-")
+			f.SetCellStyle(sheetName, cellSim, cellSim, normalStyle)
+		}
+	}
+
+	// ۹. تنظیم عرض ستون‌ها (۱۶ ستون از A تا P)
+	colWidths := map[string]float64{
+		"A": 20, "B": 10, "C": 10, "D": 10, "E": 10, "F": 10, "G": 10,
+		"H": 20, "I": 10, "J": 10, "K": 10, "L": 10, "M": 10, "N": 10,
+		"O": 20, "P": 10, "Q": 10, "R": 10, "S": 10, "T": 10, "U": 10,
+		"V": 8, "W": 14, // ✅ عرض ستون Similarity اضافه شد
+	}
+	for col, w := range colWidths {
+		f.SetColWidth(sheetName, col, col, w)
+	}
+
+	// ۱۰. فیلتر خودکار (از A1 تا P)
+	lastRow := len(matchedRows) + 1
+	f.AutoFilter(sheetName, fmt.Sprintf("A1:W%d", lastRow), nil)
+
+	// ۱۱. خروجی به []byte
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // writeTradeDataAdjusted (بدون تغییر نسبت به نسخه قبلی شما)
 func writeTradeDataAdjusted(f *excelize.File, sheetName string, rowNum, startCol int, trade *UnifiedTrade, profitStyle, lossStyle, normalStyle, entryStyle, exitStyle, tpStyle, slStyle int) {
 	values := []interface{}{
@@ -435,35 +673,6 @@ func convertBacktestTrades(backtestTrades []walking.WalkForwardTrade) []UnifiedT
 
 	for _, liveTrade := range backtestTrades {
 
-		/*entry := liveTrade.EntryPrice - 0.1
-
-
-		tpPnl := 11.0
-		slPnl := 2.0 + 0.3
-
-		var tpPrice, slPrice float64
-		volume := 10000.0
-
-		if liveTrade.Type == "BUY" {
-
-			tpPrice = calculateTargetPrice(entry, volume, tpPnl, "XAU", "BUY")
-			slPrice = calculateTargetPrice(entry, volume, slPnl, "XAU", "SELL")
-
-		} else {
-
-			tpPrice = calculateTargetPrice(entry, volume, tpPnl, "XAU", "SELL")
-			slPrice = calculateTargetPrice(entry, volume, slPnl, "XAU", "BUY")
-		}
-
-		var pnl, exitPrice float64
-		if liveTrade.PnL > 0 {
-			pnl = tpPnl - 0.3
-			exitPrice = tpPrice
-		} else {
-			pnl = 0 - slPnl
-			exitPrice = slPrice
-		}*/
-
 		tpPrice := liveTrade.TP
 		slPrice := liveTrade.SL
 		pnl := int(math.Round(liveTrade.PnL))
@@ -473,11 +682,13 @@ func convertBacktestTrades(backtestTrades []walking.WalkForwardTrade) []UnifiedT
 			exitPrice = tpPrice
 		}
 
+		randNum := generateRandom()
+
 		trades = append(trades, UnifiedTrade{
 			OpenTime:  time.Unix(liveTrade.EntryTime, 0).Truncate(time.Minute),
 			CloseTime: time.Unix(liveTrade.ExitTime, 0).Truncate(time.Minute),
 			Type:      liveTrade.Type,
-			Entry:     liveTrade.EntryPrice - 0.1,
+			Entry:     liveTrade.EntryPrice - randNum,
 			Exit:      exitPrice,
 			TP:        tpPrice,
 			SL:        slPrice,
@@ -645,4 +856,12 @@ func calculateTargetPrice(entryPrice, volumeUSD, targetUSD float64, symbol strin
 	}
 
 	return targetPrice
+}
+
+func generateRandom() float64 {
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	value := 0.01 + r.Float64()*(1.0-0.01)
+
+	return value
 }
