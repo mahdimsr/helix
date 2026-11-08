@@ -682,13 +682,13 @@ func convertBacktestTrades(backtestTrades []walking.WalkForwardTrade) []UnifiedT
 			exitPrice = tpPrice
 		}
 
-		randNum := generateRandom()
+		entryPrice := roundFraction(liveTrade.EntryPrice, 0.1) + 0.3
 
 		trades = append(trades, UnifiedTrade{
 			OpenTime:  time.Unix(liveTrade.EntryTime, 0).Truncate(time.Minute),
 			CloseTime: time.Unix(liveTrade.ExitTime, 0).Truncate(time.Minute),
 			Type:      liveTrade.Type,
-			Entry:     liveTrade.EntryPrice - randNum,
+			Entry:     entryPrice,
 			Exit:      exitPrice,
 			TP:        tpPrice,
 			SL:        slPrice,
@@ -864,4 +864,10 @@ func generateRandom() float64 {
 	value := 0.01 + r.Float64()*(1.0-0.01)
 
 	return value
+}
+
+func roundFraction(x, step float64) float64 {
+	intPart := math.Trunc(x)
+	frac := x - intPart
+	return intPart + math.Round(frac/step)*step
 }

@@ -36,8 +36,14 @@ func Handle(conn net.Conn) {
 	tickerSec := time.NewTicker(3 * time.Second)
 	defer tickerSec.Stop()
 
-	ticker3h := time.NewTicker(1 * time.Hour)
+	ticker1h := time.NewTicker(1 * time.Hour)
+	defer ticker1h.Stop()
+
+	ticker3h := time.NewTicker(3 * time.Hour)
 	defer ticker3h.Stop()
+
+	ticker24h := time.NewTicker(24 * time.Hour)
+	defer ticker24h.Stop()
 
 	_ = godotenv.Load()
 
@@ -77,8 +83,12 @@ func Handle(conn net.Conn) {
 				time.Sleep(50 * time.Millisecond)
 				inquiryOpenOrders(*client, ticketRepo)
 			}
+		case <-ticker1h.C:
+			requestHistory(*client, 10)
 		case <-ticker3h.C:
 			requestHistory(*client, 20)
+		case <-ticker24h.C:
+			requestHistory(*client, 50)
 		case <-ticker.C:
 
 			fmt.Println("Requesting Candle")
@@ -256,7 +266,7 @@ func Handle(conn net.Conn) {
 				}
 			}
 
-			if result.Type == "HISTORY" {
+			if result.Type == "HISTORY_1h" {
 				log.Println("📥 Received trade history from MT5")
 
 				var trades []HistoryTrade
@@ -326,9 +336,188 @@ func Handle(conn net.Conn) {
 					oneHourBeforeString := time.Now().Add(-1 * time.Hour).Format("2006-01-02 15:04")
 					nowString := time.Now().Format("2006-01-02 15:04")
 
-					caption := fmt.Sprintf("strategy: %s | timeframe: %s \n winrate: %.2f | trades: %d \n start: %s \n end: %s",
+					caption := fmt.Sprintf("report: %s \n strategy: %s | timeframe: %s \n winrate: %.2f | trades: %d \n start: %s \n end: %s",
+						"1 hour",
 						appName,
-						"5m",
+						"15m",
+						float64(winrate),
+						len(livetrades),
+						oneHourBeforeString,
+						nowString)
+
+					// استفاده از تابع SendExcelToTelegram که قبلاً طراحی کردیم
+					err = table.SendExcelToTelegram(telegramApiKey, telegramChatId, excelData, caption)
+					if err != nil {
+						log.Println("❌ Failed to send Excel to Telegram:", err)
+					} else {
+						log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
+					}
+				}
+			}
+
+			if result.Type == "HISTORY_3h" {
+				log.Println("📥 Received trade history from MT5")
+
+				var trades []HistoryTrade
+				// فرض بر این است که result.Data به صورت raw json array است
+				// اگر ساختار SocketResult شما متفاوت است، آن را تطبیق دهید
+				dataBytes, _ := json.Marshal(result.Data)
+				if err := json.Unmarshal(dataBytes, &trades); err != nil {
+					log.Println("❌ Failed to parse history JSON:", err)
+					continue
+				}
+
+				if len(trades) == 0 {
+					log.Println("⚠️ No closed trades found in the requested period.")
+					continue
+				}
+
+				// تبدیل به فرمت مورد نیاز اکسل
+				livetrades := make([]walking.WalkForwardTrade, 0, len(trades))
+				oneHoursBefore := time.Now().Add(-3 * time.Hour).Unix()
+				for _, t := range trades {
+
+					if t.OpenTime < oneHoursBefore {
+						continue
+					}
+
+					livetrades = append(livetrades, walking.WalkForwardTrade{
+						EntryTime:  t.OpenTime,
+						ExitTime:   t.CloseTime,
+						Type:       t.Type,
+						EntryPrice: t.OpenPrice,
+						ExitPrice:  t.ClosePrice,
+						TP:         t.TP,
+						SL:         t.SL,
+						PnL:        t.Profit,
+					})
+				}
+
+				if len(livetrades) > 0 {
+					for _, livetrade := range livetrades {
+
+						t := time.Unix(livetrade.EntryTime, 0).UTC()
+						fmt.Println(t.Format("2006-01-02 15:04:05"))
+
+					}
+
+					// ۱. ساخت فایل اکسل (با اس
+					//تفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
+					excelData, err := table.GenerateExcelFileWithBacktest(livetrades, livetrades)
+					if err != nil {
+						log.Println("❌ Error generating Excel:", err)
+						continue
+					}
+
+					// ۲. ارسال به تلگرام
+					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
+					appName := os.Getenv("APP_NAME")
+					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
+
+					wins := 0
+					for _, livetrade := range livetrades {
+						if livetrade.PnL > 0 {
+							wins = wins + 1
+						}
+					}
+
+					winrate := (wins / len(livetrades)) * 100
+					oneHourBeforeString := time.Now().Add(-3 * time.Hour).Format("2006-01-02 15:04")
+					nowString := time.Now().Format("2006-01-02 15:04")
+
+					caption := fmt.Sprintf("report: %s \n strategy: %s | timeframe: %s \n winrate: %.2f | trades: %d \n start: %s \n end: %s",
+						"3 hour",
+						appName,
+						"15m",
+						float64(winrate),
+						len(livetrades),
+						oneHourBeforeString,
+						nowString)
+
+					// استفاده از تابع SendExcelToTelegram که قبلاً طراحی کردیم
+					err = table.SendExcelToTelegram(telegramApiKey, telegramChatId, excelData, caption)
+					if err != nil {
+						log.Println("❌ Failed to send Excel to Telegram:", err)
+					} else {
+						log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
+					}
+				}
+			}
+
+			if result.Type == "HISTORY_24h" {
+				log.Println("📥 Received trade history from MT5")
+
+				var trades []HistoryTrade
+				// فرض بر این است که result.Data به صورت raw json array است
+				// اگر ساختار SocketResult شما متفاوت است، آن را تطبیق دهید
+				dataBytes, _ := json.Marshal(result.Data)
+				if err := json.Unmarshal(dataBytes, &trades); err != nil {
+					log.Println("❌ Failed to parse history JSON:", err)
+					continue
+				}
+
+				if len(trades) == 0 {
+					log.Println("⚠️ No closed trades found in the requested period.")
+					continue
+				}
+
+				// تبدیل به فرمت مورد نیاز اکسل
+				livetrades := make([]walking.WalkForwardTrade, 0, len(trades))
+				oneHoursBefore := time.Now().Add(-24 * time.Hour).Unix()
+				for _, t := range trades {
+
+					if t.OpenTime < oneHoursBefore {
+						continue
+					}
+
+					livetrades = append(livetrades, walking.WalkForwardTrade{
+						EntryTime:  t.OpenTime,
+						ExitTime:   t.CloseTime,
+						Type:       t.Type,
+						EntryPrice: t.OpenPrice,
+						ExitPrice:  t.ClosePrice,
+						TP:         t.TP,
+						SL:         t.SL,
+						PnL:        t.Profit,
+					})
+				}
+
+				if len(livetrades) > 0 {
+					for _, livetrade := range livetrades {
+
+						t := time.Unix(livetrade.EntryTime, 0).UTC()
+						fmt.Println(t.Format("2006-01-02 15:04:05"))
+
+					}
+
+					// ۱. ساخت فایل اکسل (با اس
+					//تفاده از تابع GenerateExcelFile که قبلاً نوشتیم)
+					excelData, err := table.GenerateExcelFileWithBacktest(livetrades, livetrades)
+					if err != nil {
+						log.Println("❌ Error generating Excel:", err)
+						continue
+					}
+
+					// ۲. ارسال به تلگرام
+					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
+					appName := os.Getenv("APP_NAME")
+					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
+
+					wins := 0
+					for _, livetrade := range livetrades {
+						if livetrade.PnL > 0 {
+							wins = wins + 1
+						}
+					}
+
+					winrate := (wins / len(livetrades)) * 100
+					oneHourBeforeString := time.Now().Add(-24 * time.Hour).Format("2006-01-02 15:04")
+					nowString := time.Now().Format("2006-01-02 15:04")
+
+					caption := fmt.Sprintf("report: %s \n strategy: %s | timeframe: %s \n winrate: %.2f | trades: %d \n start: %s \n end: %s",
+						"24 hour",
+						appName,
+						"15m",
 						float64(winrate),
 						len(livetrades),
 						oneHourBeforeString,
@@ -547,16 +736,6 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 
 }
 
-func requestHistory(client MTClient, count int) {
-	cmd := fmt.Sprintf("GET_HISTORY|%d\n", count)
-	err := client.SendCommand(cmd)
-	if err != nil {
-		log.Println("❌ Failed to request history:", err)
-	} else {
-		log.Printf("📊 Requested last %d closed trades from MT5", count)
-	}
-}
-
 func getLastClosedCandle(candles []models.Candle, timeframe string) (models.Candle, bool) {
 	if len(candles) == 0 {
 		return models.Candle{}, false
@@ -608,6 +787,16 @@ func getLastClosedCandle(candles []models.Candle, timeframe string) (models.Cand
 	}
 
 	return lastClosed, found
+}
+
+func requestHistory(client MTClient, count int) {
+	cmd := fmt.Sprintf("GET_HISTORY|%d\n", count)
+	err := client.SendCommand(cmd)
+	if err != nil {
+		log.Println("❌ Failed to request history:", err)
+	} else {
+		log.Printf("📊 Requested last %d closed trades from MT5", count)
+	}
 }
 
 // تابع تبدیل تایم‌فریم به ثانیه (همانند قبل)

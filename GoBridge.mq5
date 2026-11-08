@@ -180,8 +180,24 @@ void HandleCommands(int socket)
          string historyJson = GetLastClosedDealsJSON(count);
          if(historyJson != "")
          {
-            string envelope = StringFormat("{\"type\":\"HISTORY\",\"data\":%s}\n", historyJson);
-            SendLargeString(envelope);
+            if(count == 10)
+            {
+               string envelope = StringFormat("{\"type\":\"HISTORY_1h\",\"data\":%s}\n", historyJson);
+               SendLargeString(envelope);
+            }
+         
+            
+            if(count == 20)
+            {
+               string envelope = StringFormat("{\"type\":\"HISTORY_3h\",\"data\":%s}\n", historyJson);
+               SendLargeString(envelope);
+            }
+            
+            if(count == 50)
+            {
+               string envelope = StringFormat("{\"type\":\"HISTORY_24h\",\"data\":%s}\n", historyJson);
+               SendLargeString(envelope);
+            }
          }
       }
       else
