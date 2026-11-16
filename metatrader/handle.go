@@ -557,7 +557,7 @@ func Handle(conn net.Conn) {
 	}
 }
 
-func placeOrder(client MTClient, symbol string, signal string, lot, price, tp, sl float64) {
+func placeOrder(client MTClient, symbol string, signal string, lot, volume, price, tp, sl, tpPnl, slPnl float64) {
 
 	// PLACE_ORDER|symbol|side|lot|tp|sl
 	cmd := fmt.Sprintf("PLACE_ORDER|%s|%s|%.3f|%.3f|%.3f", symbol, signal, lot, tp, sl)
@@ -584,11 +584,14 @@ func placeOrder(client MTClient, symbol string, signal string, lot, price, tp, s
 		"%s \n"+
 		"🔣 Symbol: %s \n"+
 		"📱 App: %s\n"+
+		"👀 Type: %s\n"+
 		"💲 Price: %f\n"+
-		"🟢 Tp: %f\n"+
-		"🔴 Sl: %f\n"+
+		"🟢 Tp-Price: %f\n"+
+		"🔴 Sl-Price: %f\n"+
+		"📐 Config Tp/Sl: %f / %f \n"+
+		"💳 Volume (USD): %f \n"+
 		"⏲️ Time: %s\n",
-		sideDisplay, symbol, appName, price, tp, sl, time.Now().Format("2006-01-02 15:04"))
+		sideDisplay, symbol, appName, "Market", price, tp, sl, tpPnl, slPnl, volume, time.Now().Format("2006-01-02 15:04"))
 	telegramService.SendMessage(telegramChatId, text, "HTML")
 }
 
@@ -749,7 +752,7 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 				slPrice = CalculateTargetPrice(lastClosedCandle.Close, maxVolumeUSD, slPnl, "XAU", "BUY")
 			}
 
-			placeOrder(client, symbol, signalStr, maxLots, lastClosedCandle.Close, tpPrice, slPrice)
+			placeOrder(client, symbol, signalStr, maxLots, maxVolumeUSD, lastClosedCandle.Close, tpPrice, slPrice, tpPnl, slPnl)
 		} else {
 			fmt.Println("⏸️ No valid signal detected based on Walk-Forward logic.")
 		}
