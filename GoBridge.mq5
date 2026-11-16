@@ -629,6 +629,22 @@ ENUM_ORDER_TYPE_FILLING GetFillingMode(string sym)
     return ORDER_FILLING_RETURN;
 }
 
+double BalanceAfterDeal(int index, int totalDeals)
+{
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+
+   for(int k = totalDeals - 1; k > index; k--)
+   {
+      ulong t = HistoryDealGetTicket(k);
+      if(t == 0) continue;
+
+      balance -= HistoryDealGetDouble(t, DEAL_PROFIT)
+               + HistoryDealGetDouble(t, DEAL_SWAP)
+               + HistoryDealGetDouble(t, DEAL_COMMISSION);
+   }
+   return balance;
+}
+
 string GetLastClosedDealsJSON(int maxCount)
 {
    // محاسبه offset بروکر (Broker Time - UTC) یک‌بار قبل از حلقه
@@ -700,6 +716,8 @@ string GetLastClosedDealsJSON(int maxCount)
          // تبدیل زمان‌ها به UTC با کسر offset بروکر
          long openTimeUtc  = (long)openTime  - offsetSec;
          long closeTimeUtc = (long)closeTime - offsetSec;
+         double balanceAfter = BalanceAfterDeal(i, totalDeals);
+
          
          json += StringFormat(
             "{" +
@@ -716,6 +734,7 @@ string GetLastClosedDealsJSON(int maxCount)
             "\"commission\":%.2f," +
             "\"open_time\":%I64d," +
             "\"close_time\":%I64d," +
+            "\"balance\":%.2f," +
             "\"comment\":\"%s\"" +
             "}",
             positionId,
@@ -731,6 +750,7 @@ string GetLastClosedDealsJSON(int maxCount)
             commission,
             openTimeUtc,
             closeTimeUtc,
+            balanceAfter,
             commentStr
          );
          

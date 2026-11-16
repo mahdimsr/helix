@@ -39,7 +39,7 @@ func Handle(conn net.Conn) {
 	ticker1h := time.NewTicker(1 * time.Hour)
 	defer ticker1h.Stop()
 
-	ticker3h := time.NewTicker(3 * time.Hour)
+	ticker3h := time.NewTicker(1 * time.Minute)
 	defer ticker3h.Stop()
 
 	ticker24h := time.NewTicker(24 * time.Hour)
@@ -463,12 +463,19 @@ func Handle(conn net.Conn) {
 
 				// تبدیل به فرمت مورد نیاز اکسل
 				livetrades := make([]walking.WalkForwardTrade, 0, len(trades))
-				oneHoursBefore := time.Now().Add(-24 * time.Hour).Unix()
+				twentyHourBefore := time.Now().Add(-24 * time.Hour).Unix()
+
+				balanceLabels := make([]string, 0, len(trades))
+				balanceValues := make([]float64, 0, len(trades))
+
 				for _, t := range trades {
 
-					if t.OpenTime < oneHoursBefore {
+					if t.OpenTime < twentyHourBefore {
 						continue
 					}
+
+					balanceLabels = append(balanceLabels, time.Unix(t.CloseTime, 0).UTC().Format("15:04"))
+					balanceValues = append(balanceValues, t.Balance)
 
 					livetrades = append(livetrades, walking.WalkForwardTrade{
 						EntryTime:  t.OpenTime,
@@ -480,6 +487,11 @@ func Handle(conn net.Conn) {
 						SL:         t.SL,
 						PnL:        t.Profit,
 					})
+				}
+
+				for i, j := 0, len(balanceLabels)-1; i < j; i, j = i+1, j-1 {
+					balanceLabels[i], balanceLabels[j] = balanceLabels[j], balanceLabels[i]
+					balanceValues[i], balanceValues[j] = balanceValues[j], balanceValues[i]
 				}
 
 				if len(livetrades) > 0 {
@@ -511,7 +523,7 @@ func Handle(conn net.Conn) {
 					}
 
 					winrate := (wins / len(livetrades)) * 100
-					oneHourBeforeString := time.Now().Add(-24 * time.Hour).Format("2006-01-02 15:04")
+					twentyHourBeforeString := time.Now().Add(-24 * time.Hour).Format("2006-01-02 15:04")
 					nowString := time.Now().Format("2006-01-02 15:04")
 
 					caption := fmt.Sprintf("report: %s \n strategy: %s | timeframe: %s \n winrate: %.2f | trades: %d \n start: %s \n end: %s",
@@ -520,7 +532,7 @@ func Handle(conn net.Conn) {
 						"15m",
 						float64(winrate),
 						len(livetrades),
-						oneHourBeforeString,
+						twentyHourBeforeString,
 						nowString)
 
 					// استفاده از تابع SendExcelToTelegram که قبلاً طراحی کردیم
@@ -528,8 +540,17 @@ func Handle(conn net.Conn) {
 					if err != nil {
 						log.Println("❌ Failed to send Excel to Telegram:", err)
 					} else {
-						log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
+						log.Println("✅ 24-Hour Excel report sent to Telegram successfully!")
 					}
+
+					chartCaption := fmt.Sprintf("Balance Chart %s", appName)
+					chartURL, err := table.BuildBalanceChartURL(balanceLabels, balanceValues)
+					if err != nil {
+						log.Println("❌ Failed to build balance chart:", err)
+					} else if err := table.SendTelegramPhotoURL(telegramApiKey, telegramChatId, chartURL, chartCaption); err != nil {
+						log.Println("❌ Failed to send chart to Telegram:", err)
+					}
+
 				}
 			}
 		}
@@ -694,7 +715,7 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 		}
 	}
 
-	if isClosed && !isOrderOpen && lastClosedCandle.IsMarubozu() {
+	if isClosed && !isOrderOpen && lastClosedCandle.IsMarubozu() && false {
 
 		signalStr := "NONE"
 		signal := indicators.NoneSignal
