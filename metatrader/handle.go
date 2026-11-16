@@ -588,10 +588,10 @@ func placeOrder(client MTClient, symbol string, signal string, lot, volume, pric
 		"💲 Price: %f\n"+
 		"🟢 Tp-Price: %f\n"+
 		"🔴 Sl-Price: %f\n"+
-		"📐 Config Tp/Sl: %f / %f \n"+
+		"📐 Config Tp/Sl: %d / %d \n"+
 		"💳 Volume (USD): %f \n"+
 		"⏲️ Time: %s\n",
-		sideDisplay, symbol, appName, "Market", price, tp, sl, tpPnl, slPnl, volume, time.Now().Format("2006-01-02 15:04"))
+		sideDisplay, symbol, appName, "Market", price, tp, sl, int(tpPnl), int(slPnl), volume, time.Now().Format("2006-01-02 15:04"))
 	telegramService.SendMessage(telegramChatId, text, "HTML")
 }
 
