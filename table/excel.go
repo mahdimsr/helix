@@ -2,6 +2,7 @@ package table
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"helix/walking"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"math/rand"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -870,4 +872,96 @@ func roundFraction(x, step float64) float64 {
 	intPart := math.Trunc(x)
 	frac := x - intPart
 	return intPart + math.Round(frac/step)*step
+}
+
+func BuildBalanceChartURL(labels []string, balances []float64) (string, error) {
+
+	const yStep = 50.0
+
+	if len(balances) == 0 {
+		return "", fmt.Errorf("no balance data")
+	}
+	minBal, maxBal := balances[0], balances[0]
+	for _, b := range balances {
+		minBal = math.Min(minBal, b)
+		maxBal = math.Max(maxBal, b)
+	}
+	yMin := math.Floor(minBal/yStep) * yStep
+	yMax := math.Ceil(maxBal/yStep) * yStep
+	if yMin == yMax {
+		yMax += yStep
+	}
+
+	config := map[string]any{
+		"type": "line",
+		"data": map[string]any{
+			"labels": labels,
+			"datasets": []map[string]any{{
+				"label":       "Balance",
+				"data":        balances,
+				"borderColor": "rgb(54, 162, 235)",
+				"fill":        false,
+				"pointRadius": 2,
+			}},
+		},
+		"options": map[string]any{
+			"title": map[string]any{"display": true, "text": "Balance per trade"},
+			"scales": map[string]any{
+				"yAxes": []map[string]any{{
+					"ticks": map[string]any{
+						"min":      yMin,
+						"max":      yMax,
+						"stepSize": yStep,
+					},
+				}},
+			},
+		},
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"chart":           config,
+		"width":           800,
+		"height":          400,
+		"backgroundColor": "white",
+	})
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := http.Post("https://quickchart.io/chart/create", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Success bool   `json:"success"`
+		URL     string `json:"url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if !out.Success {
+		return "", fmt.Errorf("quickchart returned success=false")
+	}
+	return out.URL, nil
+}
+
+// ارسال عکس با URL به تلگرام (تلگرام خودش عکس را از URL دانلود می‌کند)
+func SendTelegramPhotoURL(apiKey, chatID, photoURL, caption string) error {
+	form := url.Values{}
+	form.Set("chat_id", chatID)
+	form.Set("photo", photoURL)
+	form.Set("caption", caption)
+
+	resp, err := http.PostForm("https://api.telegram.org/bot"+apiKey+"/sendPhoto", form)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("telegram sendPhoto status: %s", resp.Status)
+	}
+	return nil
 }
