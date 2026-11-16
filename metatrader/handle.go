@@ -59,6 +59,9 @@ func Handle(conn net.Conn) {
 		log.Fatal("Failed to initialize ticket repository:", err)
 	}
 
+	gate := NewTradingGate(os.Getenv("GATE_URL"))
+	gate.Refresh()
+
 	requestCandles(*client, symbol, timeframe, candlesCount)
 	time.Sleep(50 * time.Millisecond)
 	inquiryOpenOrders(*client, ticketRepo)
@@ -84,6 +87,7 @@ func Handle(conn net.Conn) {
 				inquiryOpenOrders(*client, ticketRepo)
 			}
 		case <-ticker1h.C:
+			gate.Refresh()
 			requestHistory(*client, 10)
 		case <-ticker3h.C:
 			requestHistory(*client, 20)
@@ -128,7 +132,11 @@ func Handle(conn net.Conn) {
 
 				fmt.Printf("Fetch %d candles \n", len(candles))
 
-				evaluateStrategy(symbol, candles, *client, ticketRepo)
+				if gate.IsActive() {
+					evaluateStrategy(symbol, candles, *client, ticketRepo)
+				} else {
+					log.Println("⏸️ trading disabled by API, skipping signal")
+				}
 
 			}
 
