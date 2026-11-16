@@ -39,7 +39,7 @@ func Handle(conn net.Conn) {
 	ticker1h := time.NewTicker(1 * time.Hour)
 	defer ticker1h.Stop()
 
-	ticker3h := time.NewTicker(1 * time.Minute)
+	ticker3h := time.NewTicker(3 * time.Hour)
 	defer ticker3h.Stop()
 
 	ticker24h := time.NewTicker(24 * time.Hour)
