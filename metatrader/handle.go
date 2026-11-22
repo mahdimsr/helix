@@ -783,8 +783,8 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 		//leverage := 10.0
 		//maxLots, maxVolumeUSD := CalculateMaxVolume(amountUsd, lastClosedCandle.Close, leverage, 100)
 
-		maxVolumeUSD := 4500.0
-		maxLots := 0.01
+		maxVolumeUSD := lastClosedCandle.Close * 1
+		maxLots := 0.01 * 1
 
 		tpPnl := 20.0
 		slPnl := 2.0
