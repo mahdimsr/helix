@@ -62,6 +62,28 @@ func Handle(conn net.Conn) {
 	gate := NewTradingGate(os.Getenv("GATE_URL"))
 	gate.Refresh()
 
+	report := NewReportService(os.Getenv("REPORT_URL"))
+	pendingChat := make(map[string]string)
+	requestReport := func(period string, count int) {
+		res, err := report.Check(period)
+		if err != nil {
+			log.Println("❌ report check failed:", err)
+			return
+		}
+		if !res.Available {
+			log.Printf("⏸️ report %s not available, skipping", period)
+			return
+		}
+		pendingChat[period] = strconv.FormatInt(res.ChatID, 10)
+		requestHistory(*client, count)
+	}
+
+	popChat := func(period string) (string, bool) {
+		id, ok := pendingChat[period]
+		delete(pendingChat, period)
+		return id, ok
+	}
+
 	requestCandles(*client, symbol, timeframe, candlesCount)
 	time.Sleep(50 * time.Millisecond)
 	inquiryOpenOrders(*client, ticketRepo)
@@ -88,11 +110,11 @@ func Handle(conn net.Conn) {
 			}
 		case <-ticker1h.C:
 			gate.Refresh()
-			requestHistory(*client, 10)
+			requestReport("1h", 10)
 		case <-ticker3h.C:
-			requestHistory(*client, 20)
+			requestReport("3h", 20)
 		case <-ticker24h.C:
-			requestHistory(*client, 50)
+			requestReport("24h", 50)
 		case <-ticker.C:
 
 			fmt.Println("Requesting Candle")
@@ -275,6 +297,12 @@ func Handle(conn net.Conn) {
 			}
 
 			if result.Type == "HISTORY_1h" {
+				chatId, ok := popChat("1h")
+				if !ok {
+					log.Println("⚠️ history received but no report request pending, skipping")
+					continue
+				}
+
 				log.Println("📥 Received trade history from MT5")
 
 				var trades []HistoryTrade
@@ -331,7 +359,7 @@ func Handle(conn net.Conn) {
 					// ۲. ارسال به تلگرام
 					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 					appName := os.Getenv("APP_NAME")
-					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
+					telegramChatId := chatId
 
 					wins := 0
 					for _, livetrade := range livetrades {
@@ -364,6 +392,12 @@ func Handle(conn net.Conn) {
 			}
 
 			if result.Type == "HISTORY_3h" {
+				chatId, ok := popChat("3h")
+				if !ok {
+					log.Println("⚠️ history received but no report request pending, skipping")
+					continue
+				}
+
 				log.Println("📥 Received trade history from MT5")
 
 				var trades []HistoryTrade
@@ -420,7 +454,7 @@ func Handle(conn net.Conn) {
 					// ۲. ارسال به تلگرام
 					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 					appName := os.Getenv("APP_NAME")
-					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
+					telegramChatId := chatId
 
 					wins := 0
 					for _, livetrade := range livetrades {
@@ -453,6 +487,12 @@ func Handle(conn net.Conn) {
 			}
 
 			if result.Type == "HISTORY_24h" {
+				chatId, ok := popChat("24h")
+				if !ok {
+					log.Println("⚠️ history received but no report request pending, skipping")
+					continue
+				}
+
 				log.Println("📥 Received trade history from MT5")
 
 				var trades []HistoryTrade
@@ -521,7 +561,7 @@ func Handle(conn net.Conn) {
 					// ۲. ارسال به تلگرام
 					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 					appName := os.Getenv("APP_NAME")
-					telegramChatId := os.Getenv("TELEGRAM_CHAT_ID") // یا همان چت اصلی
+					telegramChatId := chatId
 
 					wins := 0
 					for _, livetrade := range livetrades {
