@@ -33,16 +33,16 @@ func Handle(conn net.Conn) {
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
-	tickerSec := time.NewTicker(3 * time.Second)
+	tickerSec := time.NewTicker(3 * time.Minute)
 	defer tickerSec.Stop()
 
-	ticker1h := time.NewTicker(1 * time.Hour)
+	ticker1h := time.NewTicker(6 * time.Minute)
 	defer ticker1h.Stop()
 
-	ticker3h := time.NewTicker(3 * time.Hour)
+	ticker3h := time.NewTicker(7 * time.Minute)
 	defer ticker3h.Stop()
 
-	ticker24h := time.NewTicker(24 * time.Hour)
+	ticker24h := time.NewTicker(8 * time.Hour)
 	defer ticker24h.Stop()
 
 	_ = godotenv.Load()
@@ -388,6 +388,10 @@ func Handle(conn net.Conn) {
 					} else {
 						log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
 					}
+
+					if _, err := report.Clear("1h"); err != nil {
+						log.Println("❌ report clear failed:", err)
+					}
 				}
 			}
 
@@ -482,6 +486,10 @@ func Handle(conn net.Conn) {
 						log.Println("❌ Failed to send Excel to Telegram:", err)
 					} else {
 						log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
+					}
+
+					if _, err := report.Clear("3h"); err != nil {
+						log.Println("❌ report clear failed:", err)
 					}
 				}
 			}
@@ -591,13 +599,17 @@ func Handle(conn net.Conn) {
 						log.Println("✅ 24-Hour Excel report sent to Telegram successfully!")
 					}
 
-					chartCaption := fmt.Sprintf("Balance Chart %s", appName)
+					if _, err := report.Clear("24h"); err != nil {
+						log.Println("❌ report clear failed:", err)
+					}
+
+					/*chartCaption := fmt.Sprintf("Balance Chart %s", appName)
 					chartURL, err := table.BuildBalanceChartURL(balanceLabels, balanceValues)
 					if err != nil {
 						log.Println("❌ Failed to build balance chart:", err)
 					} else if err := table.SendTelegramPhotoURL(telegramApiKey, telegramChatId, chartURL, chartCaption); err != nil {
 						log.Println("❌ Failed to send chart to Telegram:", err)
-					}
+					}*/
 
 				}
 			}

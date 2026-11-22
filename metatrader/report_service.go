@@ -51,3 +51,30 @@ func (r *ReportService) Check(period string) (ReportResponse, error) {
 	}
 	return out, nil
 }
+
+func (r *ReportService) Clear(period string) (ReportResponse, error) {
+	var out ReportResponse
+
+	u, err := url.Parse(r.baseURL)
+	if err != nil {
+		return out, err
+	}
+	q := u.Query()
+	q.Set("period", period)
+	q.Set("status", "clear")
+	u.RawQuery = q.Encode()
+
+	resp, err := r.client.Get(u.String())
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("report status: %s", resp.Status)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
