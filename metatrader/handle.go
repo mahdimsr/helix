@@ -42,7 +42,7 @@ func Handle(conn net.Conn) {
 	ticker3h := time.NewTicker(7 * time.Minute)
 	defer ticker3h.Stop()
 
-	ticker24h := time.NewTicker(8 * time.Hour)
+	ticker24h := time.NewTicker(8 * time.Minute)
 	defer ticker24h.Stop()
 
 	_ = godotenv.Load()
