@@ -243,7 +243,7 @@ func Handle(conn net.Conn) {
 					}*/
 
 					// by percentage
-					if progressPercent >= 20 {
+					/*if progressPercent >= 20 {
 						riskFreeSl := riskFree(order, 0.3)
 
 						_, ok := riskFreeApplied[order.Ticket]
@@ -271,7 +271,7 @@ func Handle(conn net.Conn) {
 
 							twentyPercentApplied[order.Ticket] = true
 						}
-					}
+					}*/
 
 				case 2000:
 					log.Printf("🔒 Position CLOSED. Close Price: %.5f | Info: %s", order.Price, order.Comment)
