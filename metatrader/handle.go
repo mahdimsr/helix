@@ -778,7 +778,8 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 		}
 	}
 
-	if isClosed && !isOrderOpen && lastClosedCandle.IsMarubozu() {
+	if isClosed && !isOrderOpen && lastClosedCandle.IsMarubozu() &&
+		lastClosedCandle.BodyPercentage() > 0.1 && lastClosedCandle.BodyPercentage() < 0.3 {
 
 		signalStr := "NONE"
 		signal := indicators.NoneSignal
