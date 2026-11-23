@@ -18,6 +18,11 @@ type ReportResponse struct {
 	ChatID    int64 `json:"chatId"`
 }
 
+type pendingReport struct {
+	chatID    string
+	scheduled bool
+}
+
 func NewReportService(baseURL string) *ReportService {
 	return &ReportService{
 		baseURL: baseURL,

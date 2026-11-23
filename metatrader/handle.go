@@ -45,6 +45,15 @@ func Handle(conn net.Conn) {
 	ticker24h := time.NewTicker(8 * time.Minute)
 	defer ticker24h.Stop()
 
+	scheduleTicker1h := time.NewTicker(1 * time.Hour)
+	defer scheduleTicker1h.Stop()
+
+	scheduleTicker3h := time.NewTicker(3 * time.Hour)
+	defer scheduleTicker3h.Stop()
+
+	scheduleTicker24h := time.NewTicker(24 * time.Hour)
+	defer scheduleTicker24h.Stop()
+
 	_ = godotenv.Load()
 
 	symbol := "XAUUSD"
@@ -63,7 +72,10 @@ func Handle(conn net.Conn) {
 	gate.Refresh()
 
 	report := NewReportService(os.Getenv("REPORT_URL"))
-	pendingChat := make(map[string]string)
+
+	pending := make(map[string]pendingReport)
+	defaultChatID := os.Getenv("TELEGRAM_REPORT_ID")
+
 	requestReport := func(period string, count int) {
 		res, err := report.Check(period)
 		if err != nil {
@@ -74,14 +86,27 @@ func Handle(conn net.Conn) {
 			log.Printf("⏸️ report %s not available, skipping", period)
 			return
 		}
-		pendingChat[period] = strconv.FormatInt(res.ChatID, 10)
+		pending[period] = pendingReport{chatID: strconv.FormatInt(res.ChatID, 10)}
 		requestHistory(*client, count)
 	}
 
-	popChat := func(period string) (string, bool) {
-		id, ok := pendingChat[period]
-		delete(pendingChat, period)
-		return id, ok
+	requestScheduled := func(period string, count int) {
+		if defaultChatID == "" {
+			log.Println("❌ REPORT_DEFAULT_CHAT_ID is empty")
+			return
+		}
+		// اگر درخواست on-demand همین period در جریان است، دست نزن
+		if _, busy := pending[period]; busy {
+			return
+		}
+		pending[period] = pendingReport{chatID: defaultChatID, scheduled: true}
+		requestHistory(*client, count)
+	}
+
+	popChat := func(period string) (pendingReport, bool) {
+		p, ok := pending[period]
+		delete(pending, period)
+		return p, ok
 	}
 
 	requestCandles(*client, symbol, timeframe, candlesCount)
@@ -115,6 +140,12 @@ func Handle(conn net.Conn) {
 			requestReport("3h", 20)
 		case <-ticker24h.C:
 			requestReport("24h", 50)
+		case <-scheduleTicker1h.C:
+			requestScheduled("1h", 10)
+		case <-scheduleTicker3h.C:
+			requestScheduled("3h", 20)
+		case <-scheduleTicker24h.C:
+			requestScheduled("24h", 50)
 		case <-ticker.C:
 
 			fmt.Println("Requesting Candle")
@@ -297,11 +328,12 @@ func Handle(conn net.Conn) {
 			}
 
 			if result.Type == "HISTORY_1h" {
-				chatId, ok := popChat("1h")
+				p, ok := popChat("1h")
 				if !ok {
 					log.Println("⚠️ history received but no report request pending, skipping")
 					continue
 				}
+				chatId := p.chatID
 
 				log.Println("📥 Received trade history from MT5")
 
@@ -389,18 +421,21 @@ func Handle(conn net.Conn) {
 						log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
 					}
 
-					if _, err := report.Clear("1h"); err != nil {
-						log.Println("❌ report clear failed:", err)
+					if !p.scheduled {
+						if _, err := report.Clear("1h"); err != nil {
+							log.Println("❌ report clear failed:", err)
+						}
 					}
 				}
 			}
 
 			if result.Type == "HISTORY_3h" {
-				chatId, ok := popChat("3h")
+				p, ok := popChat("3h")
 				if !ok {
 					log.Println("⚠️ history received but no report request pending, skipping")
 					continue
 				}
+				chatId := p.chatID
 
 				log.Println("📥 Received trade history from MT5")
 
@@ -488,18 +523,21 @@ func Handle(conn net.Conn) {
 						log.Println("✅ 3-Hour Excel report sent to Telegram successfully!")
 					}
 
-					if _, err := report.Clear("3h"); err != nil {
-						log.Println("❌ report clear failed:", err)
+					if !p.scheduled {
+						if _, err := report.Clear("3h"); err != nil {
+							log.Println("❌ report clear failed:", err)
+						}
 					}
 				}
 			}
 
 			if result.Type == "HISTORY_24h" {
-				chatId, ok := popChat("24h")
+				p, ok := popChat("24h")
 				if !ok {
 					log.Println("⚠️ history received but no report request pending, skipping")
 					continue
 				}
+				chatId := p.chatID
 
 				log.Println("📥 Received trade history from MT5")
 
@@ -599,10 +637,11 @@ func Handle(conn net.Conn) {
 						log.Println("✅ 24-Hour Excel report sent to Telegram successfully!")
 					}
 
-					if _, err := report.Clear("24h"); err != nil {
-						log.Println("❌ report clear failed:", err)
+					if !p.scheduled {
+						if _, err := report.Clear("24h"); err != nil {
+							log.Println("❌ report clear failed:", err)
+						}
 					}
-
 					/*chartCaption := fmt.Sprintf("Balance Chart %s", appName)
 					chartURL, err := table.BuildBalanceChartURL(balanceLabels, balanceValues)
 					if err != nil {
