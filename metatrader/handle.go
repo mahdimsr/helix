@@ -62,6 +62,7 @@ func Handle(conn net.Conn) {
 
 	riskFreeApplied := make(map[int64]bool)
 	twentyPercentApplied := make(map[int64]bool)
+	var lastBalance float64
 
 	ticketRepo, err := database.NewFileRepository("tickets.json")
 	if err != nil {
@@ -186,7 +187,7 @@ func Handle(conn net.Conn) {
 				fmt.Printf("Fetch %d candles \n", len(candles))
 
 				if gate.IsActive() {
-					evaluateStrategy(symbol, candles, *client, ticketRepo)
+					evaluateStrategy(symbol, candles, *client, ticketRepo, lastBalance)
 				} else {
 					log.Println("⏸️ trading disabled by API, skipping signal")
 				}
@@ -281,6 +282,7 @@ func Handle(conn net.Conn) {
 					profitString := comment["PRF"]
 					profit, _ := strconv.ParseFloat(profitString, 64)
 					balance := order.Balance
+					lastBalance = balance
 
 					telegramApiKey := os.Getenv("TELEGRAM_API_KEY")
 					telegramChatId := os.Getenv("TELEGRAM_RESULT_ID")
@@ -800,7 +802,7 @@ func CalculatePriceAtPercent(entryPrice, tpPrice, percent float64) float64 {
 	return entryPrice + (tpPrice-entryPrice)*(percent/100.0)
 }
 
-func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo *database.FileRepository) {
+func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo *database.FileRepository, lastBalance float64) {
 
 	lastClosedCandle, isClosed := getLastClosedCandle(htf, "M15")
 
@@ -835,11 +837,12 @@ func evaluateStrategy(symbol string, htf []models.Candle, client MTClient, repo 
 		//leverage := 10.0
 		//maxLots, maxVolumeUSD := CalculateMaxVolume(amountUsd, lastClosedCandle.Close, leverage, 100)
 
-		maxVolumeUSD := lastClosedCandle.Close * 1
-		maxLots := 0.01 * 1
+		lotRatio := int((lastBalance * 10) / lastClosedCandle.Close)
+		maxVolumeUSD := lastClosedCandle.Close * float64(lotRatio)
+		maxLots := 0.01 * float64(lotRatio)
 
-		tpPnl := 20.0
-		slPnl := 2.0
+		tpPnl := 20.0 * float64(lotRatio)
+		slPnl := 2.0 * float64(lotRatio)
 
 		if signal != indicators.NoneSignal {
 			var tpPrice float64
